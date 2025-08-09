@@ -88,13 +88,77 @@ For production deployment:
 3. Consider using a process manager like systemd or supervisor
 4. Set up logging and monitoring
 
-## Contributing
+## 📋 Project Board & Development
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test with your Slack workspace
-5. Submit a pull request
-# Kit
-# Kit
-# Kit
+We use GitHub Projects for tracking development progress:
+
+- **📊 [View Project Board](https://github.com/fowler013/Kit/projects)** - See current development status
+- **🐛 [Report Issues](https://github.com/fowler013/Kit/issues/new/choose)** - Bug reports and feature requests
+- **📖 [Development Guide](PROJECT_BOARD_SETUP.md)** - Complete setup instructions
+
+### Current Development Focus
+
+**v1.1 - Foundation** (Current)
+- ✅ Basic Slack integration
+- 🚧 Error handling & resilience  
+- 🚧 Environment configuration
+- 📋 OpenAI GPT integration
+
+**v1.2 - AI Integration** (Next)
+- 📋 Conversation memory
+- 📋 Slash commands
+- 📋 Structured logging
+
+See [GITHUB_ISSUES.md](GITHUB_ISSUES.md) for complete roadmap.
+
+## 🚀 Quick Start for Contributors
+
+### Prerequisites
+- Go 1.21+
+- Slack workspace with admin access
+- OpenAI API key (optional, for AI features)
+
+### Development Setup
+1. **Clone and setup:**
+   ```bash
+   git clone https://github.com/fowler013/Kit.git
+   cd Kit
+   cp .env.example .env
+   # Edit .env with your tokens
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   go mod tidy
+   ```
+
+3. **Run the bot:**
+   ```bash
+   go run main.go
+   ```
+
+### Contributing Workflow
+
+1. **Check the [Project Board](https://github.com/fowler013/Kit/projects)** for available issues
+2. **Assign yourself** to an issue (moves to "In Progress")
+3. **Create a branch:** `git checkout -b feature/123-short-description`
+4. **Make changes** and test thoroughly
+5. **Submit PR** linking to the issue (moves to "In Review")
+6. **Merge after review** (moves to "Done")
+
+### Branch Naming
+- Features: `feature/123-openai-integration`
+- Bugs: `bugfix/456-error-handling`  
+- DevOps: `devops/789-docker-setup`
+
+## 📚 Documentation
+
+- [Project Board Setup Guide](PROJECT_BOARD_SETUP.md) - Complete development workflow
+- [GitHub Issues Overview](GITHUB_ISSUES.md) - Detailed issue descriptions
+- [Issue Templates](.github/ISSUE_TEMPLATE/) - For creating new issues
+
+## 🔍 Need Help?
+
+- 📖 Check existing [issues](https://github.com/fowler013/Kit/issues)
+- 💬 Join discussions in [GitHub Discussions](https://github.com/fowler013/Kit/discussions)
+- 📧 Create a new issue using our [templates](https://github.com/fowler013/Kit/issues/new/choose)
