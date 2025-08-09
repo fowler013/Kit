@@ -2,13 +2,14 @@
 
 ## 🎉 Quick Start
 
-Your Kit AI Bot is now successfully set up and running! Here's everything you need to know to use and maintain it.
+Your Kit AI Bot is now successfully set up with **Claude AI integration**! Here's everything you need to know to use and maintain your intelligent Slack assistant.
 
 ## 🔧 Prerequisites
 
 - ✅ Go 1.21+ installed
 - ✅ Slack workspace with admin permissions
 - ✅ Kit AI Bot app installed in your Slack workspace
+- ✅ Anthropic Claude API key configured
 
 ## 🚀 Running the Bot
 
@@ -23,26 +24,33 @@ go build -o slack-ai-bot
 ./slack-ai-bot
 ```
 
-### Option 3: Background Process
+### Option 3: Service Management
 ```bash
-./slack-ai-bot > bot.log 2>&1 &
+./bot-service.sh start    # Start bot
+./bot-service.sh stop     # Stop bot
+./bot-service.sh restart  # Restart bot
+./bot-service.sh status   # Check status
+./bot-service.sh logs     # View live logs
 ```
 
 ## 💬 Using the Bot in Slack
 
-### 1. **Mention the Bot**
+### 1. **Mention the Bot** (Now with AI!)
 In any channel where the bot is present:
 ```
-@Kit hello
-@Kit what can you do?
-@Kit help me with something
+@Kit what's the weather like today?
+@Kit can you help me understand this concept?
+@Kit explain machine learning in simple terms
+@Kit how do I write better code?
 ```
 
-### 2. **Direct Message**
+### 2. **Direct Message** (Full AI Conversation)
 Send a DM directly to the Kit bot:
 ```
-Hello Kit!
-Can you help me?
+Hello Kit! How are you today?
+Can you help me plan a project?
+What are some good programming practices?
+Explain quantum computing to me
 ```
 
 ### 3. **Invite to Channels**
@@ -50,12 +58,22 @@ Can you help me?
 /invite @Kit
 ```
 
+## 🧠 AI Features
+
+- **Claude 3 Sonnet**: Powered by Anthropic's latest AI model
+- **Intelligent Responses**: Context-aware, helpful answers
+- **Professional Tone**: Optimized for workplace communication
+- **Fallback System**: Basic responses if AI is unavailable
+- **Conversation Memory**: Understands context within messages
+- **Error Resilience**: Graceful handling of API issues
+
 ## 🔍 Bot Features
 
-- **Smart Responses**: The bot responds to mentions and direct messages
+- **Smart Responses**: AI-generated, contextual answers
 - **Channel Awareness**: Works in both public channels and DMs
 - **Event Logging**: Detailed logging for debugging and monitoring
 - **Socket Mode**: Real-time connection to Slack via WebSocket
+- **Automatic Fallback**: Basic responses when AI is unavailable
 
 ## 📊 Monitoring & Logs
 

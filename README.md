@@ -1,15 +1,17 @@
 # Kit - AI Slack Bot 🤖
 
-Kit is an intelligent Slack bot built in Go that provides AI-powered assistance to your team. The bot uses Socket Mode for real-time communication and can respond to mentions and direct messages.
+Kit is an intelligent Slack bot built in Go that provides **Claude AI-powered assistance** to your team. The bot uses Socket Mode for real-time communication and delivers thoughtful, contextual responses to any question or request.
 
 ## ✨ Features
 
+- 🧠 **Claude 3 Sonnet Integration**: Powered by Anthropic's latest AI model
 - 🚀 **Real-time Communication**: Uses Slack Socket Mode for instant responses
-- 💬 **Smart Conversations**: Responds to @mentions and direct messages
+- 💬 **Intelligent Conversations**: Context-aware responses to any question
 - 📝 **Comprehensive Logging**: Detailed event logging for monitoring
 - 🔧 **Easy Configuration**: Simple environment-based setup
 - 🎯 **Channel Aware**: Works in both public channels and DMs
-- 🛡️ **Secure**: Token-based authentication with Slack
+- 🛡️ **Secure**: Token-based authentication with Slack and Anthropic
+- 🔄 **Resilient**: Automatic fallback to basic responses if AI fails
 
 ## 🚀 Quick Start
 
@@ -56,20 +58,24 @@ Your `.env` file should contain:
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-level-token-here
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
+ANTHROPIC_MODEL=claude-3-sonnet-20240229
 ```
 
 ## 💬 Usage
 
 ### In Slack Channels
 ```
-@Kit hello there!
-@Kit can you help me with something?
+@Kit explain quantum computing in simple terms
+@Kit what are best practices for team collaboration?
+@Kit help me brainstorm ideas for our project
 ```
 
 ### Direct Messages
 ```
-Hello Kit!
-What can you do?
+Hello Kit! How can you help our team?
+What's the best way to learn programming?
+Can you review this code snippet for me?
 ```
 
 ## 🏗️ Project Structure
@@ -127,11 +133,14 @@ tail -f bot.log
 
 ## 🎯 Status
 
-✅ **Bot Successfully Running**
+✅ **Bot Successfully Running with Claude AI**
 - Connected to Slack via Socket Mode
+- Claude 3 Sonnet AI integration active
+- Intelligent responses to all questions
 - Receiving and responding to events
 - Handling mentions and direct messages
 - Comprehensive logging active
+- Automatic fallback system operational
 
 ## 📞 Support
 
