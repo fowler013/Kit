@@ -2,14 +2,14 @@
 
 ## 🎉 Quick Start
 
-Your Kit AI Bot is now successfully set up with **Claude AI integration**! Here's everything you need to know to use and maintain your intelligent Slack assistant.
+Your Kit AI Bot is now successfully set up with **Google Gemini AI integration**! Here's everything you need to know to use and maintain your intelligent Slack assistant.
 
 ## 🔧 Prerequisites
 
 - ✅ Go 1.21+ installed
 - ✅ Slack workspace with admin permissions
 - ✅ Kit AI Bot app installed in your Slack workspace
-- ✅ Anthropic Claude API key configured
+- ✅ Google Gemini API key configured
 
 ## 🚀 Running the Bot
 
@@ -60,7 +60,7 @@ Explain quantum computing to me
 
 ## 🧠 AI Features
 
-- **Claude 3 Sonnet**: Powered by Anthropic's latest AI model
+- **Google Gemini 1.5 Flash**: Powered by Google's latest AI model
 - **Intelligent Responses**: Context-aware, helpful answers
 - **Professional Tone**: Optimized for workplace communication
 - **Fallback System**: Basic responses if AI is unavailable

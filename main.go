@@ -16,11 +16,11 @@ import (
 // Bot holds the configuration and clients for the bot
 type Bot struct {
 	slackAPI     *slack.Client
-	claudeClient *ClaudeClient
+	geminiClient *GeminiClient
 }
 
-// Global claude client for easy access
-var globalClaudeClient *ClaudeClient
+// Global gemini client for easy access
+var globalGeminiClient *GeminiClient
 
 func main() {
 	// Load environment variables
@@ -41,24 +41,24 @@ func main() {
 	log.Printf("🔑 App Token: %s...", appToken[:20])
 
 	// Get AI configuration
-	anthropicAPIKey := os.Getenv("ANTHROPIC_API_KEY")
-	anthropicModel := os.Getenv("ANTHROPIC_MODEL")
-	if anthropicModel == "" {
-		anthropicModel = "claude-3-sonnet-20240229" // default model
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	geminiModel := os.Getenv("GEMINI_MODEL")
+	if geminiModel == "" {
+		geminiModel = "gemini-1.5-flash" // default model
 	}
 
 	// Create Bot instance with configuration
 	bot := &Bot{}
 
-	// Initialize Claude client if API key is available
-	if anthropicAPIKey != "" {
-		bot.claudeClient = NewClaudeClient(anthropicAPIKey, anthropicModel)
-		globalClaudeClient = bot.claudeClient
-		if bot.claudeClient != nil {
-			log.Printf("🧠 Claude AI initialized with model: %s", anthropicModel)
+	// Initialize Gemini client if API key is available
+	if geminiAPIKey != "" {
+		bot.geminiClient = NewGeminiClient(geminiAPIKey, geminiModel)
+		globalGeminiClient = bot.geminiClient
+		if bot.geminiClient != nil {
+			log.Printf("🧠 Gemini AI initialized with model: %s", geminiModel)
 		}
 	} else {
-		log.Println("⚠️  No Anthropic API key found - using basic responses")
+		log.Println("⚠️  No Gemini API key found - using basic responses")
 	}
 
 	// Create Slack API client with both tokens
@@ -225,13 +225,13 @@ func generateResponse(message, userID string) string {
 
 	log.Printf("💭 Generating response for: '%s'", cleanMessage)
 
-	// Try Claude AI first
-	if globalClaudeClient != nil {
-		if response, err := globalClaudeClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Claude response generated successfully")
+	// Try Gemini AI first
+	if globalGeminiClient != nil {
+		if response, err := globalGeminiClient.GenerateResponse(cleanMessage); err == nil && response != "" {
+			log.Printf("🧠 Gemini response generated successfully")
 			return response
 		} else if err != nil {
-			log.Printf("⚠️  Claude error, falling back to basic response: %v", err)
+			log.Printf("⚠️  Gemini error, falling back to basic response: %v", err)
 		}
 	}
 
@@ -245,22 +245,28 @@ func generateBasicResponse(cleanMessage string) string {
 
 	switch {
 	case strings.Contains(cleanMessage, "hello") || strings.Contains(cleanMessage, "hi"):
-		return "Hello! I'm Kit, your AI assistant. How can I help you today? 👋"
+		return "Hello! I'm Kit, your AI assistant. I'm currently running in basic mode while we resolve an API issue. How can I help you today? 👋"
 
 	case strings.Contains(cleanMessage, "help"):
-		return "I'm Kit, your AI bot! I can:\n• Answer questions\n• Have conversations\n• Help with various tasks\n\nJust ask me anything! 🤖"
+		return "I'm Kit, your AI bot! I'm currently in basic mode due to an API issue, but I can still:\n• Respond to basic questions\n• Provide general assistance\n• Help with simple tasks\n\nThe AI features will be back soon! 🤖"
 
 	case strings.Contains(cleanMessage, "how are you"):
-		return "I'm doing great! Thanks for asking. How are you doing? 😊"
+		return "I'm doing well, though I'm currently running in basic mode while we resolve an API connectivity issue. How are you doing? 😊"
 
 	case strings.Contains(cleanMessage, "what can you do"):
-		return "I'm Kit, and I can help you with:\n• Answering questions\n• Having conversations\n• Providing assistance\n• And much more!\n\nWhat would you like to know? 🚀"
+		return "I'm Kit! I'm currently in basic response mode while we fix an API issue, but normally I can:\n• Answer complex questions\n• Have intelligent conversations\n• Provide detailed assistance\n• Help with various tasks\n\nThe full AI features will be restored soon! 🚀"
 
 	case strings.Contains(cleanMessage, "thank"):
-		return "You're very welcome! Happy to help! 😊"
+		return "You're very welcome! I'm happy to help, even in basic mode! 😊"
+
+	case strings.Contains(cleanMessage, "what day") || strings.Contains(cleanMessage, "what time"):
+		return "I'm currently in basic mode and can't access real-time information. Once the AI features are restored, I'll be able to help with current date/time and much more! 📅"
+
+	case strings.Contains(cleanMessage, "video game") || strings.Contains(cleanMessage, "game"):
+		return "I'd love to discuss video games with you! However, I'm currently in basic mode due to an API issue. Once the AI features are restored, I can have detailed conversations about games, recommendations, and more! 🎮"
 
 	default:
-		return fmt.Sprintf("Hi there! I received your message: \"%s\"\n\nI'm Kit, your AI assistant. How can I help you today? 🤖", cleanMessage)
+		return fmt.Sprintf("Hi! I received your message: \"%s\"\n\nI'm currently running in basic mode while we resolve an API connectivity issue. Once fixed, I'll be able to provide much more intelligent and helpful responses! 🤖✨", cleanMessage)
 	}
 }
 

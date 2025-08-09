@@ -1,16 +1,16 @@
 # Kit - AI Slack Bot 🤖
 
-Kit is an intelligent Slack bot built in Go that provides **Claude AI-powered assistance** to your team. The bot uses Socket Mode for real-time communication and delivers thoughtful, contextual responses to any question or request.
+Kit is an intelligent Slack bot built in Go that provides **Google Gemini AI-powered assistance** to your team. The bot uses Socket Mode for real-time communication and delivers thoughtful, contextual responses to any question or request.
 
 ## ✨ Features
 
-- 🧠 **Claude 3 Sonnet Integration**: Powered by Anthropic's latest AI model
+- 🧠 **Google Gemini 1.5 Flash Integration**: Powered by Google's latest AI model
 - 🚀 **Real-time Communication**: Uses Slack Socket Mode for instant responses
 - 💬 **Intelligent Conversations**: Context-aware responses to any question
 - 📝 **Comprehensive Logging**: Detailed event logging for monitoring
 - 🔧 **Easy Configuration**: Simple environment-based setup
 - 🎯 **Channel Aware**: Works in both public channels and DMs
-- 🛡️ **Secure**: Token-based authentication with Slack and Anthropic
+- 🛡️ **Secure**: Token-based authentication with Slack and Google AI
 - 🔄 **Resilient**: Automatic fallback to basic responses if AI fails
 
 ## 🚀 Quick Start
@@ -58,8 +58,8 @@ Your `.env` file should contain:
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-level-token-here
-ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
-ANTHROPIC_MODEL=claude-3-sonnet-20240229
+GEMINI_API_KEY=AIzaSyDF-YDOoMGJI3EAMB8dfaJtDCIzl6RQ1po
+GEMINI_MODEL=gemini-1.5-flash
 ```
 
 ## 💬 Usage
@@ -133,9 +133,9 @@ tail -f bot.log
 
 ## 🎯 Status
 
-✅ **Bot Successfully Running with Claude AI**
+✅ **Bot Successfully Running with Google Gemini AI**
 - Connected to Slack via Socket Mode
-- Claude 3 Sonnet AI integration active
+- Google Gemini 1.5 Flash AI integration active
 - Intelligent responses to all questions
 - Receiving and responding to events
 - Handling mentions and direct messages
