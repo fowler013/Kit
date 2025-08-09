@@ -13,6 +13,15 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+// Bot holds the configuration and clients for the bot
+type Bot struct {
+	slackAPI     *slack.Client
+	claudeClient *ClaudeClient
+}
+
+// Global claude client for easy access
+var globalClaudeClient *ClaudeClient
+
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
@@ -31,8 +40,30 @@ func main() {
 	log.Printf("🔑 Bot Token: %s...", botToken[:20])
 	log.Printf("🔑 App Token: %s...", appToken[:20])
 
+	// Get AI configuration
+	anthropicAPIKey := os.Getenv("ANTHROPIC_API_KEY")
+	anthropicModel := os.Getenv("ANTHROPIC_MODEL")
+	if anthropicModel == "" {
+		anthropicModel = "claude-3-sonnet-20240229" // default model
+	}
+
+	// Create Bot instance with configuration
+	bot := &Bot{}
+
+	// Initialize Claude client if API key is available
+	if anthropicAPIKey != "" {
+		bot.claudeClient = NewClaudeClient(anthropicAPIKey, anthropicModel)
+		globalClaudeClient = bot.claudeClient
+		if bot.claudeClient != nil {
+			log.Printf("🧠 Claude AI initialized with model: %s", anthropicModel)
+		}
+	} else {
+		log.Println("⚠️  No Anthropic API key found - using basic responses")
+	}
+
 	// Create Slack API client with both tokens
 	api := slack.New(botToken, slack.OptionDebug(false), slack.OptionAppLevelToken(appToken))
+	bot.slackAPI = api
 
 	// Create Socket Mode client
 	socketClient := socketmode.New(
@@ -183,18 +214,35 @@ func handleMentionEvent(event *slackevents.AppMentionEvent, api *slack.Client) {
 	sendMessage(api, event.Channel, response)
 }
 
-// generateResponse creates a response to user messages
+// generateResponse creates a response to user messages with AI integration
 func generateResponse(message, userID string) string {
 	// Clean the message text
-	cleanMessage := strings.ToLower(strings.TrimSpace(message))
-
+	cleanMessage := strings.TrimSpace(message)
+	
 	// Remove mention tags like <@U123456789>
 	cleanMessage = strings.ReplaceAll(cleanMessage, fmt.Sprintf("<@%s>", userID), "")
 	cleanMessage = strings.TrimSpace(cleanMessage)
 
 	log.Printf("💭 Generating response for: '%s'", cleanMessage)
 
-	// Simple response logic (you can enhance this with AI later)
+	// Try Claude AI first
+	if globalClaudeClient != nil {
+		if response, err := globalClaudeClient.GenerateResponse(cleanMessage); err == nil && response != "" {
+			log.Printf("🧠 Claude response generated successfully")
+			return response
+		} else if err != nil {
+			log.Printf("⚠️  Claude error, falling back to basic response: %v", err)
+		}
+	}
+
+	// Fallback to basic responses
+	return generateBasicResponse(cleanMessage)
+}
+
+// generateBasicResponse provides fallback responses when AI is unavailable
+func generateBasicResponse(cleanMessage string) string {
+	cleanMessage = strings.ToLower(cleanMessage)
+
 	switch {
 	case strings.Contains(cleanMessage, "hello") || strings.Contains(cleanMessage, "hi"):
 		return "Hello! I'm Kit, your AI assistant. How can I help you today? 👋"
