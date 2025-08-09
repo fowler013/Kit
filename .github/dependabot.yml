@@ -1,0 +1,81 @@
+# Dependabot configuration for automatic dependency updates
+# Documentation: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Go modules dependency updates
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    # Limit the number of open pull requests for version updates
+    open-pull-requests-limit: 5
+    # Group dependencies by type
+    groups:
+      # Group all Go dependencies together
+      go-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "github.com/slack-go/slack*"
+      # Keep Slack SDK separate for careful review
+      slack-sdk:
+        patterns:
+          - "github.com/slack-go/slack*"
+    # Reviewers for dependency PRs
+    reviewers:
+      - "fowler013"
+    # Labels to add to dependency PRs
+    labels:
+      - "dependencies"
+      - "automated"
+    # Commit message prefix
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Allow both patch and minor updates
+    ignore:
+      # Ignore major version updates for now
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions dependency updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "fowler013"
+    labels:
+      - "github-actions"
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Docker dependency updates (when we add Dockerfile)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 2
+    reviewers:
+      - "fowler013"
+    labels:
+      - "docker"
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "docker"
+      include: "scope"

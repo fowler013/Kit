@@ -1,0 +1,116 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  GO_VERSION: '1.21'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and push Docker image
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+          
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Output image
+      id: image
+      run: echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> $GITHUB_OUTPUT
+
+  # Deploy to staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging
+    if: github.event.inputs.environment == 'staging' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deploy to staging
+      run: |
+        echo "Deploying ${{ needs.build-and-push.outputs.image }} to staging"
+        # Add your staging deployment commands here
+        # Example: kubectl, docker-compose, or cloud provider CLI commands
+        
+    - name: Notify Slack - Staging Deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        text: '🚀 Successfully deployed to staging environment!'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Deploy to production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    if: github.event.inputs.environment == 'production' || startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Deploy to production
+      run: |
+        echo "Deploying ${{ needs.build-and-push.outputs.image }} to production"
+        # Add your production deployment commands here
+        
+    - name: Notify Slack - Production Deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        text: '🎉 Successfully deployed to production environment!'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}

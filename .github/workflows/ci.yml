@@ -1,0 +1,136 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  # Run tests and quality checks
+  test:
+    name: Test & Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+          
+    - name: Install dependencies
+      run: go mod download
+      
+    - name: Run go vet
+      run: go vet ./...
+      
+    - name: Run go fmt check
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "Code is not formatted properly:"
+          gofmt -s -l .
+          exit 1
+        fi
+        
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+      
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        fail_ci_if_error: true
+
+  # Security scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './...'
+        
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Build binary
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Build binary
+      run: |
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o slack-ai-bot .
+        
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: slack-ai-bot
+        path: slack-ai-bot
+
+  # Notify Slack on completion
+  notify:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs: [test, security, build]
+    if: always()
+    
+    steps:
+    - name: Notify Slack on Success
+      if: ${{ needs.test.result == 'success' && needs.security.result == 'success' && needs.build.result == 'success' }}
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        text: '✅ CI/CD Pipeline completed successfully for Kit repository!'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        
+    - name: Notify Slack on Failure
+      if: ${{ needs.test.result == 'failure' || needs.security.result == 'failure' || needs.build.result == 'failure' }}
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: '❌ CI/CD Pipeline failed for Kit repository. Please check the logs.'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
