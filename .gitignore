@@ -1,5 +1,7 @@
 # Binaries
 slack-ai-bot
+kit-bot
+main
 *.exe
 *.exe~
 *.dll
@@ -21,12 +23,22 @@ go.work
 # Environment variables
 .env
 
+# Logs and temporary files
+*.log
+archive/
+backup/
+tmp/
+
 # IDE files
-.vscode/
+.vscode/settings.json
 .idea/
 *.swp
 *.swo
 *~
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # OS generated files
 .DS_Store
