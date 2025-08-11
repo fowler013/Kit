@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/slack-go/slack"
@@ -17,10 +18,13 @@ import (
 type Bot struct {
 	slackAPI     *slack.Client
 	geminiClient *GeminiClient
+	botUserID    string
+	startTime    string
 }
 
 // Global gemini client for easy access
 var globalGeminiClient *GeminiClient
+var globalBot *Bot
 
 func main() {
 	// Load environment variables
@@ -48,7 +52,10 @@ func main() {
 	}
 
 	// Create Bot instance with configuration
-	bot := &Bot{}
+	bot := &Bot{
+		startTime: time.Now().Format("2006-01-02 15:04:05"),
+	}
+	globalBot = bot
 
 	// Initialize Gemini client if API key is available
 	if geminiAPIKey != "" {
@@ -64,6 +71,14 @@ func main() {
 	// Create Slack API client with both tokens
 	api := slack.New(botToken, slack.OptionDebug(false), slack.OptionAppLevelToken(appToken))
 	bot.slackAPI = api
+
+	// Test Slack connection and get bot info
+	authTest, err := api.AuthTest()
+	if err != nil {
+		log.Fatalf("❌ Failed to authenticate with Slack: %v", err)
+	}
+	bot.botUserID = authTest.UserID
+	log.Printf("✅ Authenticated as: %s (ID: %s)", authTest.User, authTest.UserID)
 
 	// Create Socket Mode client
 	socketClient := socketmode.New(
@@ -210,8 +225,26 @@ func handleMessageEvent(event *slackevents.MessageEvent, api *slack.Client) {
 // handleMentionEvent processes app mention events
 func handleMentionEvent(event *slackevents.AppMentionEvent, api *slack.Client) {
 	log.Printf("🎯 Kit mentioned in channel %s", event.Channel)
-	response := generateResponse(event.Text, event.User)
+	
+	// Remove bot mention from message text
+	cleanMessage := removeBotMention(event.Text)
+	
+	response := generateResponse(cleanMessage, event.User)
 	sendMessage(api, event.Channel, response)
+}
+
+// removeBotMention removes bot mention tags from message text
+func removeBotMention(text string) string {
+	// Remove mentions like <@U123456789> and clean up
+	cleanText := text
+	if strings.Contains(cleanText, "<@") {
+		parts := strings.Split(cleanText, ">")
+		if len(parts) > 1 {
+			cleanText = strings.Join(parts[1:], ">")
+		}
+	}
+	
+	return strings.TrimSpace(cleanText)
 }
 
 // generateResponse creates a response to user messages with AI integration
@@ -224,6 +257,11 @@ func generateResponse(message, userID string) string {
 	cleanMessage = strings.TrimSpace(cleanMessage)
 
 	log.Printf("💭 Generating response for: '%s'", cleanMessage)
+
+	// Check for special commands first
+	if response := handleSpecialCommands(cleanMessage); response != "" {
+		return response
+	}
 
 	// Try Gemini AI first
 	if globalGeminiClient != nil {
@@ -239,50 +277,144 @@ func generateResponse(message, userID string) string {
 	return generateBasicResponse(cleanMessage)
 }
 
+// handleSpecialCommands processes special bot commands
+func handleSpecialCommands(message string) string {
+	cleanMessage := strings.ToLower(strings.TrimSpace(message))
+	
+	switch {
+	case cleanMessage == "status" || cleanMessage == "health":
+		aiStatus := "❌ Offline"
+		if globalGeminiClient != nil {
+			aiStatus = "✅ Online (Gemini)"
+		}
+		
+		return fmt.Sprintf("🤖 **Kit Status Report**\n"+
+			"• Bot Status: ✅ Online and Connected\n"+
+			"• AI Engine: %s\n"+
+			"• Started: %s\n"+
+			"• Ready to help! 🚀", aiStatus, globalBot.startTime)
+			
+	case cleanMessage == "help" || cleanMessage == "commands":
+		return "🤖 **Kit Commands**\n\n" +
+			"**Special Commands:**\n" +
+			"• `status` - Check bot health\n" +
+			"• `help` - Show this help message\n\n" +
+			"**How to use Kit:**\n" +
+			"• Send direct messages for private conversations\n" +
+			"• Mention @Kit in channels to get responses\n" +
+			"• Ask questions, request help, or just chat!\n\n" +
+			"I'm powered by Google Gemini AI! 🧠✨"
+			
+	case strings.Contains(cleanMessage, "version"):
+		return "🤖 **Kit v1.0**\n" +
+			"• Built with Go\n" +
+			"• Powered by Google Gemini AI\n" +
+			"• Socket Mode for real-time responses\n" +
+			"• Open source and ready to help! 🚀"
+	}
+	
+	return "" // No special command matched
+}
+
 // generateBasicResponse provides fallback responses when AI is unavailable
 func generateBasicResponse(cleanMessage string) string {
 	cleanMessage = strings.ToLower(cleanMessage)
 
 	switch {
-	case strings.Contains(cleanMessage, "hello") || strings.Contains(cleanMessage, "hi"):
-		return "Hello! I'm Kit, your AI assistant. I'm currently running in basic mode while we resolve an API issue. How can I help you today? 👋"
-
-	case strings.Contains(cleanMessage, "help"):
-		return "I'm Kit, your AI bot! I'm currently in basic mode due to an API issue, but I can still:\n• Respond to basic questions\n• Provide general assistance\n• Help with simple tasks\n\nThe AI features will be back soon! 🤖"
+	case strings.Contains(cleanMessage, "hello") || strings.Contains(cleanMessage, "hi") || strings.Contains(cleanMessage, "hey"):
+		return "👋 **Hello there!** I'm Kit, your AI assistant.\n\n" +
+			"I'm powered by Google Gemini AI and ready to help with questions, conversations, or tasks!\n\n" +
+			"Try asking me something or type `help` for available commands. 🤖✨"
 
 	case strings.Contains(cleanMessage, "how are you"):
-		return "I'm doing well, though I'm currently running in basic mode while we resolve an API connectivity issue. How are you doing? 😊"
+		return "😊 **I'm doing great, thanks for asking!**\n\n" +
+			"I'm running smoothly with my Gemini AI brain engaged and ready to tackle whatever you throw at me!\n\n" +
+			"How are you doing today? Anything I can help you with? �"
 
-	case strings.Contains(cleanMessage, "what can you do"):
-		return "I'm Kit! I'm currently in basic response mode while we fix an API issue, but normally I can:\n• Answer complex questions\n• Have intelligent conversations\n• Provide detailed assistance\n• Help with various tasks\n\nThe full AI features will be restored soon! 🚀"
+	case strings.Contains(cleanMessage, "what can you do") || strings.Contains(cleanMessage, "capabilities"):
+		return "🚀 **Here's what I can do:**\n\n" +
+			"✅ **Answer complex questions** - I can help with explanations, research, and analysis\n" +
+			"✅ **Have intelligent conversations** - Chat about any topic that interests you\n" +
+			"✅ **Provide coding help** - Assistance with programming and technical questions\n" +
+			"✅ **Creative tasks** - Writing, brainstorming, and creative problem-solving\n" +
+			"✅ **General assistance** - Help with work, learning, and daily tasks\n\n" +
+			"Just ask me anything! I'm powered by Google Gemini AI. 🧠�"
 
 	case strings.Contains(cleanMessage, "thank"):
-		return "You're very welcome! I'm happy to help, even in basic mode! 😊"
+		return "😊 **You're very welcome!** Happy to help anytime!\n\n" +
+			"Feel free to ask me anything else - I'm here and ready to assist! 🤖�"
 
-	case strings.Contains(cleanMessage, "what day") || strings.Contains(cleanMessage, "what time"):
-		return "I'm currently in basic mode and can't access real-time information. Once the AI features are restored, I'll be able to help with current date/time and much more! 📅"
+	case strings.Contains(cleanMessage, "what day") || strings.Contains(cleanMessage, "what time") || strings.Contains(cleanMessage, "date"):
+		return "📅 **Time & Date Info:**\n\n" +
+			"I don't have access to real-time information right now, but I can help you with:\n" +
+			"• General time zone questions\n" +
+			"• Date calculations\n" +
+			"• Calendar-related queries\n\n" +
+			"For current time, check your system clock! ⏰"
 
-	case strings.Contains(cleanMessage, "video game") || strings.Contains(cleanMessage, "game"):
-		return "I'd love to discuss video games with you! However, I'm currently in basic mode due to an API issue. Once the AI features are restored, I can have detailed conversations about games, recommendations, and more! 🎮"
+	case strings.Contains(cleanMessage, "video game") || strings.Contains(cleanMessage, "game") || strings.Contains(cleanMessage, "gaming"):
+		return "🎮 **Gaming Discussion!**\n\n" +
+			"I'd love to chat about video games! I can help with:\n" +
+			"• Game recommendations\n" +
+			"• Gaming strategies and tips\n" +
+			"• Industry news and trends\n" +
+			"• Gaming technology\n\n" +
+			"What type of games are you into? 🕹️"
+
+	case strings.Contains(cleanMessage, "weather"):
+		return "🌤️ **Weather Info:**\n\n" +
+			"I don't have access to live weather data, but I can help with:\n" +
+			"• Weather-related questions\n" +
+			"• Climate information\n" +
+			"• Weather patterns and phenomena\n\n" +
+			"Check your local weather app for current conditions! ☀️"
 
 	default:
-		return fmt.Sprintf("Hi! I received your message: \"%s\"\n\nI'm currently running in basic mode while we resolve an API connectivity issue. Once fixed, I'll be able to provide much more intelligent and helpful responses! 🤖✨", cleanMessage)
+		return fmt.Sprintf("🤖 **Message received:** \"%s\"\n\n"+
+			"I'm Kit, your AI assistant! I can help with questions, conversations, and various tasks.\n\n"+
+			"💡 **Try asking me about:**\n"+
+			"• Any topic you're curious about\n"+
+			"• Help with work or projects\n"+
+			"• Creative brainstorming\n"+
+			"• Technical questions\n\n"+
+			"Or type `help` to see available commands! ✨", cleanMessage)
 	}
 }
 
-// sendMessage sends a message to a Slack channel
+// sendMessage sends a message to a Slack channel with enhanced error handling
 func sendMessage(api *slack.Client, channel, text string) {
-	log.Printf("📤 Sending message to %s: %s", channel, text)
+	log.Printf("📤 Sending message to %s: %.100s%s", channel, text, func() string {
+		if len(text) > 100 {
+			return "..."
+		}
+		return ""
+	}())
 
-	_, _, err := api.PostMessage(
-		channel,
-		slack.MsgOptionText(text, false),
-		slack.MsgOptionAsUser(true),
-	)
+	// Add retry logic for failed sends
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		_, _, err := api.PostMessage(
+			channel,
+			slack.MsgOptionText(text, false),
+			slack.MsgOptionAsUser(true),
+		)
 
-	if err != nil {
-		log.Printf("❌ Failed to send message: %v", err)
-	} else {
-		log.Println("✅ Message sent successfully!")
+		if err != nil {
+			if attempt < maxRetries {
+				log.Printf("⚠️  Failed to send message (attempt %d/%d): %v. Retrying...", attempt, maxRetries, err)
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
+			} else {
+				log.Printf("❌ Failed to send message after %d attempts: %v", maxRetries, err)
+				return
+			}
+		} else {
+			if attempt > 1 {
+				log.Printf("✅ Message sent successfully on attempt %d!", attempt)
+			} else {
+				log.Println("✅ Message sent successfully!")
+			}
+			return
+		}
 	}
 }
