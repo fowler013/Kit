@@ -58,7 +58,7 @@ Your `.env` file should contain:
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-level-token-here
-GEMINI_API_KEY=AIzaSyDF-YDOoMGJI3EAMB8dfaJtDCIzl6RQ1po
+GEMINI_API_KEY=your-app-level-token-here
 GEMINI_MODEL=gemini-1.5-flash
 ```
 
