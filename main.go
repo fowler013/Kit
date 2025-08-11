@@ -135,10 +135,8 @@ func handleEvents(ctx context.Context, client *socketmode.Client, api *slack.Cli
 				handleEventsAPI(event, client, api)
 
 			case socketmode.EventTypeSlashCommand:
-				log.Println("⚡ Slash command received (not implemented)")
-				if event.Request != nil {
-					client.Ack(*event.Request)
-				}
+				log.Println("⚡ Slash command received!")
+				handleSlashCommand(event, client, api)
 
 			case socketmode.EventTypeInteractive:
 				log.Println("🎮 Interactive event received (not implemented)")
@@ -153,6 +151,103 @@ func handleEvents(ctx context.Context, client *socketmode.Client, api *slack.Cli
 				}
 			}
 		}
+	}
+}
+
+// handleSlashCommand processes slash command events
+func handleSlashCommand(event socketmode.Event, client *socketmode.Client, api *slack.Client) {
+	// Acknowledge the event first
+	if event.Request != nil {
+		defer client.Ack(*event.Request)
+	}
+
+	// Parse the slash command
+	cmd, ok := event.Data.(slack.SlashCommand)
+	if !ok {
+		log.Printf("❌ Failed to parse slash command: %T", event.Data)
+		return
+	}
+
+	log.Printf("⚡ Slash command: %s %s from %s in %s", cmd.Command, cmd.Text, cmd.UserName, cmd.ChannelName)
+
+	// Generate response based on command
+	response := handleSlashCommandLogic(cmd)
+
+	// Send response back to Slack
+	if response != "" {
+		sendSlashCommandResponse(api, cmd.ResponseURL, cmd.ChannelID, response)
+	}
+}
+
+// handleSlashCommandLogic processes the actual slash command logic
+func handleSlashCommandLogic(cmd slack.SlashCommand) string {
+	commandText := strings.TrimSpace(cmd.Text)
+	
+	switch cmd.Command {
+	case "/kit":
+		return handleKitCommand(commandText, cmd.UserID)
+	default:
+		return fmt.Sprintf("❓ Unknown command: %s", cmd.Command)
+	}
+}
+
+// handleKitCommand processes /kit subcommands
+func handleKitCommand(args, userID string) string {
+	if args == "" {
+		return "👋 **Kit Slash Commands**\n\n" +
+			"Available commands:\n" +
+			"• `/kit status` - Check bot health\n" +
+			"• `/kit help` - Show help information\n" +
+			"• `/kit version` - Show version info\n" +
+			"• `/kit ask [question]` - Ask Kit a question\n\n" +
+			"Example: `/kit ask What is Go programming?`"
+	}
+
+	parts := strings.Fields(args)
+	subcommand := strings.ToLower(parts[0])
+
+	switch subcommand {
+	case "status", "health":
+		return handleSpecialCommands("status")
+
+	case "help":
+		return handleSpecialCommands("help")
+
+	case "version":
+		return handleSpecialCommands("version")
+
+	case "ask":
+		if len(parts) < 2 {
+			return "❓ **Usage:** `/kit ask [your question]`\n\nExample: `/kit ask What is artificial intelligence?`"
+		}
+		question := strings.Join(parts[1:], " ")
+		return generateResponse(question, userID)
+
+	default:
+		return fmt.Sprintf("❓ **Unknown subcommand:** `%s`\n\n"+
+			"Available commands:\n"+
+			"• `/kit status` - Check bot health\n"+
+			"• `/kit help` - Show help\n"+
+			"• `/kit version` - Show version\n"+
+			"• `/kit ask [question]` - Ask a question", subcommand)
+	}
+}
+
+// sendSlashCommandResponse sends a response to a slash command
+func sendSlashCommandResponse(api *slack.Client, responseURL, channelID, text string) {
+	log.Printf("📤 Sending slash command response to %s", channelID)
+
+	// For slash commands, we can send an immediate response
+	_, _, err := api.PostMessage(
+		channelID,
+		slack.MsgOptionText(text, false),
+		slack.MsgOptionAsUser(true),
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send slash command response: %v", err)
+	} else {
+		log.Println("✅ Slash command response sent successfully!")
 	}
 }
 
@@ -298,10 +393,16 @@ func handleSpecialCommands(message string) string {
 		return "🤖 **Kit Commands**\n\n" +
 			"**Special Commands:**\n" +
 			"• `status` - Check bot health\n" +
-			"• `help` - Show this help message\n\n" +
+			"• `help` - Show this help message\n" +
+			"• `version` - Show version info\n\n" +
+			"**Slash Commands:**\n" +
+			"• `/kit status` - Check bot health\n" +
+			"• `/kit help` - Show help\n" +
+			"• `/kit ask [question]` - Ask Kit anything\n\n" +
 			"**How to use Kit:**\n" +
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in channels to get responses\n" +
+			"• Use slash commands for quick interactions\n" +
 			"• Ask questions, request help, or just chat!\n\n" +
 			"I'm powered by Google Gemini AI! 🧠✨"
 			
