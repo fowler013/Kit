@@ -30,7 +30,7 @@ func NewGeminiClient(apiKey, modelName string) *GeminiClient {
 
 	// Create the generative model
 	model := client.GenerativeModel(modelName)
-	
+
 	// Configure the model for optimal Slack responses
 	model.SetTemperature(0.7)
 	model.SetTopK(40)

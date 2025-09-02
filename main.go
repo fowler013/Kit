@@ -182,7 +182,7 @@ func handleSlashCommand(event socketmode.Event, client *socketmode.Client, api *
 // handleSlashCommandLogic processes the actual slash command logic
 func handleSlashCommandLogic(cmd slack.SlashCommand) string {
 	commandText := strings.TrimSpace(cmd.Text)
-	
+
 	switch cmd.Command {
 	case "/kit":
 		return handleKitCommand(commandText, cmd.UserID)
@@ -320,10 +320,10 @@ func handleMessageEvent(event *slackevents.MessageEvent, api *slack.Client) {
 // handleMentionEvent processes app mention events
 func handleMentionEvent(event *slackevents.AppMentionEvent, api *slack.Client) {
 	log.Printf("🎯 Kit mentioned in channel %s", event.Channel)
-	
+
 	// Remove bot mention from message text
 	cleanMessage := removeBotMention(event.Text)
-	
+
 	response := generateResponse(cleanMessage, event.User)
 	sendMessage(api, event.Channel, response)
 }
@@ -338,7 +338,7 @@ func removeBotMention(text string) string {
 			cleanText = strings.Join(parts[1:], ">")
 		}
 	}
-	
+
 	return strings.TrimSpace(cleanText)
 }
 
@@ -346,7 +346,7 @@ func removeBotMention(text string) string {
 func generateResponse(message, userID string) string {
 	// Clean the message text
 	cleanMessage := strings.TrimSpace(message)
-	
+
 	// Remove mention tags like <@U123456789>
 	cleanMessage = strings.ReplaceAll(cleanMessage, fmt.Sprintf("<@%s>", userID), "")
 	cleanMessage = strings.TrimSpace(cleanMessage)
@@ -375,20 +375,20 @@ func generateResponse(message, userID string) string {
 // handleSpecialCommands processes special bot commands
 func handleSpecialCommands(message string) string {
 	cleanMessage := strings.ToLower(strings.TrimSpace(message))
-	
+
 	switch {
 	case cleanMessage == "status" || cleanMessage == "health":
 		aiStatus := "❌ Offline"
 		if globalGeminiClient != nil {
 			aiStatus = "✅ Online (Gemini)"
 		}
-		
+
 		return fmt.Sprintf("🤖 **Kit Status Report**\n"+
 			"• Bot Status: ✅ Online and Connected\n"+
 			"• AI Engine: %s\n"+
 			"• Started: %s\n"+
 			"• Ready to help! 🚀", aiStatus, globalBot.startTime)
-			
+
 	case cleanMessage == "help" || cleanMessage == "commands":
 		return "🤖 **Kit Commands**\n\n" +
 			"**Special Commands:**\n" +
@@ -405,7 +405,7 @@ func handleSpecialCommands(message string) string {
 			"• Use slash commands for quick interactions\n" +
 			"• Ask questions, request help, or just chat!\n\n" +
 			"I'm powered by Google Gemini AI! 🧠✨"
-			
+
 	case strings.Contains(cleanMessage, "version"):
 		return "🤖 **Kit v1.0**\n" +
 			"• Built with Go\n" +
@@ -413,7 +413,7 @@ func handleSpecialCommands(message string) string {
 			"• Socket Mode for real-time responses\n" +
 			"• Open source and ready to help! 🚀"
 	}
-	
+
 	return "" // No special command matched
 }
 
