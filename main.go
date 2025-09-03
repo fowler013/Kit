@@ -17,13 +17,16 @@ import (
 // Bot holds the configuration and clients for the bot
 type Bot struct {
 	slackAPI     *slack.Client
+	discordBot   *DiscordBot
 	geminiClient *GeminiClient
+	claudeClient *ClaudeClient
 	botUserID    string
 	startTime    string
 }
 
-// Global gemini client for easy access
+// Global clients for easy access
 var globalGeminiClient *GeminiClient
+var globalClaudeClient *ClaudeClient
 var globalBot *Bot
 
 func main() {
@@ -32,17 +35,19 @@ func main() {
 		log.Println("Warning: .env file not found")
 	}
 
-	// Get required tokens
-	botToken := os.Getenv("SLACK_BOT_TOKEN")
-	appToken := os.Getenv("SLACK_APP_TOKEN")
+	log.Printf("🚀 Starting Kit AI Bot (Multi-Platform)...")
 
-	if botToken == "" || appToken == "" {
-		log.Fatal("❌ SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set in .env file")
+	// Get Slack tokens
+	slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
+	slackAppToken := os.Getenv("SLACK_APP_TOKEN")
+
+	// Get Discord token
+	discordToken := os.Getenv("DISCORD_BOT_TOKEN")
+
+	// Check if at least one platform is configured
+	if slackBotToken == "" && discordToken == "" {
+		log.Fatal("❌ At least one platform must be configured (SLACK_BOT_TOKEN or DISCORD_BOT_TOKEN)")
 	}
-
-	log.Printf("🚀 Starting Kit AI Bot...")
-	log.Printf("🔑 Bot Token: %s...", botToken[:20])
-	log.Printf("🔑 App Token: %s...", appToken[:20])
 
 	// Get AI configuration
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
@@ -51,55 +56,105 @@ func main() {
 		geminiModel = "gemini-1.5-flash" // default model
 	}
 
+	claudeAPIKey := os.Getenv("CLAUDE_API_KEY")
+	claudeModel := os.Getenv("CLAUDE_MODEL")
+	if claudeModel == "" {
+		claudeModel = "claude-3-sonnet-20240229" // default model
+	}
+
 	// Create Bot instance with configuration
 	bot := &Bot{
 		startTime: time.Now().Format("2006-01-02 15:04:05"),
 	}
 	globalBot = bot
 
-	// Initialize Gemini client if API key is available
+	// Initialize AI clients
 	if geminiAPIKey != "" {
 		bot.geminiClient = NewGeminiClient(geminiAPIKey, geminiModel)
 		globalGeminiClient = bot.geminiClient
 		if bot.geminiClient != nil {
 			log.Printf("🧠 Gemini AI initialized with model: %s", geminiModel)
 		}
+	}
+
+	if claudeAPIKey != "" {
+		bot.claudeClient = NewClaudeClient(claudeAPIKey, claudeModel)
+		globalClaudeClient = bot.claudeClient
+		if bot.claudeClient != nil {
+			log.Printf("🧠 Claude AI initialized with model: %s", claudeModel)
+		}
+	}
+
+	if bot.geminiClient == nil && bot.claudeClient == nil {
+		log.Println("⚠️  No AI clients available - using basic responses only")
+	}
+
+	// Initialize Slack if tokens are available
+	if slackBotToken != "" && slackAppToken != "" {
+		log.Printf("🔵 Initializing Slack integration...")
+		log.Printf("🔑 Slack Bot Token: %s...", slackBotToken[:20])
+		log.Printf("🔑 Slack App Token: %s...", slackAppToken[:20])
+
+		// Create Slack API client
+		api := slack.New(slackBotToken, slack.OptionDebug(false), slack.OptionAppLevelToken(slackAppToken))
+		bot.slackAPI = api
+
+		// Test Slack connection
+		authTest, err := api.AuthTest()
+		if err != nil {
+			log.Printf("❌ Failed to authenticate with Slack: %v", err)
+		} else {
+			bot.botUserID = authTest.UserID
+			log.Printf("✅ Slack authenticated as: %s (ID: %s)", authTest.User, authTest.UserID)
+		}
+	}
+
+	// Initialize Discord if token is available
+	if discordToken != "" {
+		log.Printf("🔵 Initializing Discord integration...")
+		log.Printf("🔑 Discord Token: %s...", discordToken[:20])
+
+		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime)
+		if err != nil {
+			log.Printf("❌ Failed to create Discord bot: %v", err)
+		} else {
+			bot.discordBot = discordBot
+
+			// Start Discord bot
+			if err := discordBot.Start(); err != nil {
+				log.Printf("❌ Failed to start Discord bot: %v", err)
+			}
+		}
+	}
+
+	// Only proceed with Slack if it's configured
+	if bot.slackAPI != nil {
+		// Create Socket Mode client
+		socketClient := socketmode.New(
+			bot.slackAPI,
+			socketmode.OptionDebug(false),
+			socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
+		)
+
+		// Create context for graceful shutdown
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		log.Println("📡 Starting Slack event listener...")
+
+		// Start event handler goroutine
+		go handleEvents(ctx, socketClient, bot.slackAPI)
+
+		// Start the Socket Mode connection
+		log.Println("🔌 Connecting to Slack...")
+		if err := socketClient.Run(); err != nil {
+			log.Fatalf("❌ Failed to start Slack Socket Mode: %v", err)
+		}
 	} else {
-		log.Println("⚠️  No Gemini API key found - using basic responses")
-	}
+		log.Println("🔵 Slack not configured, running Discord-only mode...")
 
-	// Create Slack API client with both tokens
-	api := slack.New(botToken, slack.OptionDebug(false), slack.OptionAppLevelToken(appToken))
-	bot.slackAPI = api
-
-	// Test Slack connection and get bot info
-	authTest, err := api.AuthTest()
-	if err != nil {
-		log.Fatalf("❌ Failed to authenticate with Slack: %v", err)
-	}
-	bot.botUserID = authTest.UserID
-	log.Printf("✅ Authenticated as: %s (ID: %s)", authTest.User, authTest.UserID)
-
-	// Create Socket Mode client
-	socketClient := socketmode.New(
-		api,
-		socketmode.OptionDebug(false),
-		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
-	)
-
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	log.Println("📡 Starting event listener...")
-
-	// Start event handler goroutine
-	go handleEvents(ctx, socketClient, api)
-
-	// Start the Socket Mode connection
-	log.Println("🔌 Connecting to Slack...")
-	if err := socketClient.Run(); err != nil {
-		log.Fatalf("❌ Failed to start Socket Mode: %v", err)
+		// Keep the program running for Discord
+		select {}
 	}
 }
 

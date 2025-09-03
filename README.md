@@ -1,23 +1,26 @@
-# Kit - AI Slack Bot 🤖
+# Kit - Multi-Platform AI Bot 🤖
 
-Kit is an intelligent Slack bot built in Go that provides **Google Gemini AI-powered assistance** to your team. The bot uses Socket Mode for real-time communication and delivers thoughtful, contextual responses to any question or request.
+Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powered assistance** to your team on **both Slack and Discord**. The bot supports real-time communication and delivers thoughtful, contextual responses to any question or request.
 
 ## ✨ Features
 
 - 🧠 **Google Gemini 1.5 Flash Integration**: Powered by Google's latest AI model
-- 🚀 **Real-time Communication**: Uses Slack Socket Mode for instant responses
+- 🌐 **Multi-Platform Support**: Works on both Slack and Discord simultaneously
+- 🚀 **Real-time Communication**: Uses platform-native protocols for instant responses
 - 💬 **Intelligent Conversations**: Context-aware responses to any question
 - 📝 **Comprehensive Logging**: Detailed event logging for monitoring
 - 🔧 **Easy Configuration**: Simple environment-based setup
-- 🎯 **Channel Aware**: Works in both public channels and DMs
-- 🛡️ **Secure**: Token-based authentication with Slack and Google AI
+- 🎯 **Channel Aware**: Works in public channels, private channels, and DMs
+- 🛡️ **Secure**: Token-based authentication with platforms and AI services
 - 🔄 **Resilient**: Automatic fallback to basic responses if AI fails
+- ⚙️ **Flexible Deployment**: Run on one platform or both simultaneously
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Go 1.21+ installed
-- Slack workspace with admin permissions
+- Slack workspace with admin permissions (for Slack integration)
+- Discord server with admin permissions (for Discord integration)
 - Slack app configured (see [SLACK_SETUP.md](SLACK_SETUP.md))
 
 ### Installation
@@ -36,25 +39,69 @@ Kit is an intelligent Slack bot built in Go that provides **Google Gemini AI-pow
 3. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your Slack tokens
+   # Edit .env with your platform tokens and AI API keys
    ```
 
 4. **Build and run**
    ```bash
-   go build -o slack-ai-bot
-   ./slack-ai-bot
+   go build -o kit-ai-bot
+   ./kit-ai-bot
    ```
 
 ## 📖 Documentation
 
 - **[HOW_TO_USE.md](HOW_TO_USE.md)** - Complete usage guide
 - **[SLACK_SETUP.md](SLACK_SETUP.md)** - Slack app configuration
+- **[DISCORD_SETUP.md](DISCORD_SETUP.md)** - Discord bot configuration
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development guidelines
 - **[PROJECT_BOARD_SETUP.md](PROJECT_BOARD_SETUP.md)** - Project management
 
 ## 🔧 Configuration
 
-Your `.env` file should contain:
+Your `.env` file should contain (configure platforms as needed):
+```bash
+# Slack Configuration (optional)
+SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+SLACK_APP_TOKEN=xapp-your-app-level-token-here
+
+# Discord Configuration (optional)
+DISCORD_BOT_TOKEN=your-discord-bot-token-here
+
+# AI Configuration (required)
+GEMINI_API_KEY=your-gemini-api-key-here
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+## 🌐 Platform Support
+
+### Slack Integration
+- Socket Mode for real-time responses
+- Mentions and direct messages
+- Slash commands support
+- Rich message formatting
+
+### Discord Integration  
+- WebSocket connection for real-time responses
+- Mentions and direct messages
+- Server and DM support
+- Rich embed formatting
+
+## 💬 Usage Examples
+
+### Slack
+```
+@Kit explain quantum computing in simple terms
+@Kit what are best practices for team collaboration?
+@Kit help me brainstorm ideas for our project
+```
+
+### Discord
+```
+@Kit what's the weather like today?
+@Kit can you help me understand this concept?
+!status
+!help
+```
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-level-token-here
