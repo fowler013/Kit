@@ -129,14 +129,24 @@ Can you review this code snippet for me?
 
 ```
 Kit/
-├── main.go              # Main bot application
-├── go.mod              # Go dependencies
-├── .env                # Environment variables (private)
-├── .env.example        # Environment template
-├── HOW_TO_USE.md      # Usage guide
-├── SLACK_SETUP.md     # Setup instructions
-├── slack-ai-bot       # Compiled binary
-└── test-bot.sh        # Testing script
+├── main.go                 # Main entry point & Slack handlers
+├── gemini.go               # Google Gemini AI client
+├── claude.go               # Anthropic Claude AI client
+├── discord.go              # Discord bot handlers
+├── go.mod                  # Go dependencies
+├── Dockerfile              # Container build
+├── docs/                   # Documentation
+│   ├── SLACK_SETUP.md      # Slack app configuration
+│   ├── DISCORD_SETUP.md    # Discord bot configuration
+│   ├── HOW_TO_USE.md       # Usage guide
+│   └── development/        # Dev docs (DEVELOPMENT.md, etc.)
+├── scripts/                # Shell scripts
+│   ├── setup/              # Setup & configuration scripts
+│   ├── debug/              # Debugging scripts
+│   └── test/               # Test scripts
+└── config/                 # Configuration files
+    ├── docker-compose.yml  # Docker orchestration
+    └── redis.conf          # Redis configuration
 ```
 
 ## � Monitoring
