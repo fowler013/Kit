@@ -73,7 +73,7 @@ func main() {
 		bot.geminiClient = NewGeminiClient(geminiAPIKey, geminiModel)
 		globalGeminiClient = bot.geminiClient
 		if bot.geminiClient != nil {
-			log.Printf("🧠 Gemini AI initialized with model: %s", geminiModel)
+			log.Println("🧠 Gemini AI initialized (model from GEMINI_MODEL)")
 		}
 	}
 
@@ -81,7 +81,7 @@ func main() {
 		bot.claudeClient = NewClaudeClient(claudeAPIKey, claudeModel)
 		globalClaudeClient = bot.claudeClient
 		if bot.claudeClient != nil {
-			log.Printf("🧠 Claude AI initialized with model: %s", claudeModel)
+			log.Println("🧠 Claude AI initialized (model from CLAUDE_MODEL)")
 		}
 	}
 
@@ -92,8 +92,7 @@ func main() {
 	// Initialize Slack if tokens are available
 	if slackBotToken != "" && slackAppToken != "" {
 		log.Printf("🔵 Initializing Slack integration...")
-		log.Printf("🔑 Slack Bot Token: %s...", slackBotToken[:20])
-		log.Printf("🔑 Slack App Token: %s...", slackAppToken[:20])
+		log.Printf("🔑 Slack tokens loaded (bot + app)")
 
 		// Create Slack API client
 		api := slack.New(slackBotToken, slack.OptionDebug(false), slack.OptionAppLevelToken(slackAppToken))
@@ -105,14 +104,14 @@ func main() {
 			log.Printf("❌ Failed to authenticate with Slack: %v", err)
 		} else {
 			bot.botUserID = authTest.UserID
-			log.Printf("✅ Slack authenticated as: %s (ID: %s)", authTest.User, authTest.UserID)
+			log.Println("✅ Slack authenticated successfully")
 		}
 	}
 
 	// Initialize Discord if token is available
 	if discordToken != "" {
 		log.Printf("🔵 Initializing Discord integration...")
-		log.Printf("🔑 Discord Token: %s...", discordToken[:20])
+		log.Printf("🔑 Discord token loaded")
 
 		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime)
 		if err != nil {
