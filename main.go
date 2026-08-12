@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ var globalClaudeClient *ClaudeClient
 var globalBot *Bot
 var globalAIService *AIService
 var globalSessionStore SessionStore
+var globalCampClient *CampClient
 
 func main() {
 	// Load environment variables
@@ -134,6 +136,23 @@ func main() {
 	bot.aiService = NewAIService(globalSessionStore, generateBasicResponse, providers...)
 	globalAIService = bot.aiService
 
+	// Camp Power-Up integration (optional)
+	campBaseURL := os.Getenv("CAMP_API_BASE_URL")
+	if campBaseURL != "" {
+		campCapacity, _ := strconv.Atoi(os.Getenv("CAMP_CAPACITY"))
+		globalCampClient = NewCampClient(
+			campBaseURL,
+			os.Getenv("CAMP_ADMIN_USERNAME"),
+			os.Getenv("CAMP_ADMIN_PASSWORD"),
+			os.Getenv("CAMP_ALLOWED_DISCORD_IDS"),
+			os.Getenv("CAMP_ALLOWED_ROLE"),
+			campCapacity,
+		)
+		if globalCampClient != nil {
+			log.Printf("🏕️  Camp Power-Up integration enabled: %s", campBaseURL)
+		}
+	}
+
 	// Initialize Slack if tokens are available
 	if slackBotToken != "" && slackAppToken != "" {
 		log.Printf("🔵 Initializing Slack integration...")
@@ -168,6 +187,20 @@ func main() {
 			// Start Discord bot
 			if err := discordBot.Start(); err != nil {
 				log.Printf("❌ Failed to start Discord bot: %v", err)
+			} else if globalCampClient != nil {
+				// Camp monitoring: new-registration alerts + website health
+				pollMinutes, _ := strconv.Atoi(os.Getenv("CAMP_POLL_MINUTES"))
+				if pollMinutes <= 0 {
+					pollMinutes = 5
+				}
+				monitor := NewCampMonitor(
+					globalCampClient,
+					discordBot.session,
+					os.Getenv("CAMP_ALERTS_CHANNEL"),
+					os.Getenv("CAMP_STATUS_CHANNEL"),
+					time.Duration(pollMinutes)*time.Minute,
+				)
+				monitor.Start()
 			}
 		}
 	}
