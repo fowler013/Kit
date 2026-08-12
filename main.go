@@ -29,6 +29,14 @@ var globalGeminiClient *GeminiClient
 var globalClaudeClient *ClaudeClient
 var globalBot *Bot
 
+// sanitizeForLog strips newlines and carriage returns from untrusted values
+// before logging, preventing log injection (CWE-117).
+func sanitizeForLog(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
+}
+
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
@@ -73,7 +81,7 @@ func main() {
 		bot.geminiClient = NewGeminiClient(geminiAPIKey, geminiModel)
 		globalGeminiClient = bot.geminiClient
 		if bot.geminiClient != nil {
-			log.Printf("🧠 Gemini AI initialized with model: %s", geminiModel)
+			log.Printf("🧠 Gemini AI initialized with model: %s", sanitizeForLog(geminiModel))
 		}
 	}
 
@@ -81,7 +89,7 @@ func main() {
 		bot.claudeClient = NewClaudeClient(claudeAPIKey, claudeModel)
 		globalClaudeClient = bot.claudeClient
 		if bot.claudeClient != nil {
-			log.Printf("🧠 Claude AI initialized with model: %s", claudeModel)
+			log.Printf("🧠 Claude AI initialized with model: %s", sanitizeForLog(claudeModel))
 		}
 	}
 
@@ -92,8 +100,7 @@ func main() {
 	// Initialize Slack if tokens are available
 	if slackBotToken != "" && slackAppToken != "" {
 		log.Printf("🔵 Initializing Slack integration...")
-		log.Printf("🔑 Slack Bot Token: %s...", slackBotToken[:20])
-		log.Printf("🔑 Slack App Token: %s...", slackAppToken[:20])
+		log.Printf("🔑 Slack tokens loaded (bot + app)")
 
 		// Create Slack API client
 		api := slack.New(slackBotToken, slack.OptionDebug(false), slack.OptionAppLevelToken(slackAppToken))
@@ -105,14 +112,14 @@ func main() {
 			log.Printf("❌ Failed to authenticate with Slack: %v", err)
 		} else {
 			bot.botUserID = authTest.UserID
-			log.Printf("✅ Slack authenticated as: %s (ID: %s)", authTest.User, authTest.UserID)
+			log.Printf("✅ Slack authenticated as: %s (ID: %s)", sanitizeForLog(authTest.User), sanitizeForLog(authTest.UserID))
 		}
 	}
 
 	// Initialize Discord if token is available
 	if discordToken != "" {
 		log.Printf("🔵 Initializing Discord integration...")
-		log.Printf("🔑 Discord Token: %s...", discordToken[:20])
+		log.Printf("🔑 Discord token loaded")
 
 		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime)
 		if err != nil {
