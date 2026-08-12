@@ -100,13 +100,35 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	hasCampRole := d.memberHasCampRole(s, m)
 	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole)
 
-	// Send response
-	_, err := s.ChannelMessageSend(m.ChannelID, response)
-	if err != nil {
-		log.Printf("❌ Failed to send Discord message: %v", err)
-	} else {
-		log.Printf("✅ Discord response sent successfully")
+	// Send response, splitting long messages to stay under Discord's limit
+	for _, chunk := range splitMessage(response, 1900) {
+		if _, err := s.ChannelMessageSend(m.ChannelID, chunk); err != nil {
+			log.Printf("❌ Failed to send Discord message: %v", err)
+			return
+		}
 	}
+	log.Printf("✅ Discord response sent successfully")
+}
+
+// splitMessage splits text into chunks of at most limit characters,
+// preferring to break on newlines so formatting stays intact.
+func splitMessage(text string, limit int) []string {
+	if len(text) <= limit {
+		return []string{text}
+	}
+	var chunks []string
+	for len(text) > limit {
+		cut := strings.LastIndex(text[:limit], "\n")
+		if cut <= 0 {
+			cut = limit
+		}
+		chunks = append(chunks, strings.TrimRight(text[:cut], "\n"))
+		text = strings.TrimLeft(text[cut:], "\n")
+	}
+	if text != "" {
+		chunks = append(chunks, text)
+	}
+	return chunks
 }
 
 // campLinksMessage builds the !links response from the camp base URL plus any
