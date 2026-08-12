@@ -73,7 +73,7 @@ func main() {
 		bot.geminiClient = NewGeminiClient(geminiAPIKey, geminiModel)
 		globalGeminiClient = bot.geminiClient
 		if bot.geminiClient != nil {
-			log.Printf("🧠 Gemini AI initialized with model: %q", geminiModel)
+			log.Println("🧠 Gemini AI initialized (model from GEMINI_MODEL)")
 		}
 	}
 
@@ -81,7 +81,7 @@ func main() {
 		bot.claudeClient = NewClaudeClient(claudeAPIKey, claudeModel)
 		globalClaudeClient = bot.claudeClient
 		if bot.claudeClient != nil {
-			log.Printf("🧠 Claude AI initialized with model: %q", claudeModel)
+			log.Println("🧠 Claude AI initialized (model from CLAUDE_MODEL)")
 		}
 	}
 
@@ -104,7 +104,7 @@ func main() {
 			log.Printf("❌ Failed to authenticate with Slack: %v", err)
 		} else {
 			bot.botUserID = authTest.UserID
-			log.Printf("✅ Slack authenticated as: %q (ID: %q)", authTest.User, authTest.UserID)
+			log.Println("✅ Slack authenticated successfully")
 		}
 	}
 
