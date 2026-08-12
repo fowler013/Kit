@@ -191,3 +191,31 @@ func newClaudeProvider(client *ClaudeClient) Provider {
 		},
 	}
 }
+
+func newGitHubModelsProvider(client *GitHubModelsClient) Provider {
+	return providerFunc{
+		name: "github-models",
+		fn: func(ctx context.Context, message string, session *Session) (string, error) {
+			if client == nil {
+				return "", nil
+			}
+			return client.GenerateResponse(message)
+		},
+	}
+}
+
+func newOpenAICompatProvider(client *OpenAICompatClient) Provider {
+	name := "openai-compat"
+	if client != nil {
+		name = client.name
+	}
+	return providerFunc{
+		name: name,
+		fn: func(ctx context.Context, message string, session *Session) (string, error) {
+			if client == nil {
+				return "", nil
+			}
+			return client.GenerateResponse(message)
+		},
+	}
+}

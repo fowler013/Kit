@@ -65,6 +65,15 @@ func main() {
 		claudeModel = "claude-3-sonnet-20240229" // default model
 	}
 
+	githubModelsToken := os.Getenv("GITHUB_MODELS_TOKEN")
+	githubModelsModel := os.Getenv("GITHUB_MODELS_MODEL") // defaults inside the client
+
+	// Generic OpenAI-compatible endpoint (Groq, Mistral, OpenRouter, Ollama, OpenAI...)
+	compatBaseURL := os.Getenv("OPENAI_COMPAT_BASE_URL")
+	compatAPIKey := os.Getenv("OPENAI_COMPAT_API_KEY")
+	compatModel := os.Getenv("OPENAI_COMPAT_MODEL")
+	compatName := os.Getenv("OPENAI_COMPAT_NAME")
+
 	// Create Bot instance with configuration
 	bot := &Bot{
 		startTime: time.Now().Format("2006-01-02 15:04:05"),
@@ -88,12 +97,34 @@ func main() {
 		}
 	}
 
-	if bot.geminiClient == nil && bot.claudeClient == nil {
+	var githubModelsClient *GitHubModelsClient
+	if githubModelsToken != "" {
+		githubModelsClient = NewGitHubModelsClient(githubModelsToken, githubModelsModel)
+		if githubModelsClient != nil {
+			log.Printf("🧠 GitHub Models initialized with model: %s", githubModelsClient.model)
+		}
+	}
+
+	var compatClient *OpenAICompatClient
+	if compatBaseURL != "" && compatModel != "" {
+		compatClient = NewOpenAICompatClient(compatBaseURL, compatAPIKey, compatModel, compatName)
+		if compatClient != nil {
+			log.Printf("🧠 %s initialized with model: %s (%s)", compatClient.name, compatClient.model, compatClient.baseURL)
+		}
+	}
+
+	if bot.geminiClient == nil && bot.claudeClient == nil && githubModelsClient == nil && compatClient == nil {
 		log.Println("⚠️  No AI clients available - using basic responses only")
 	}
 
 	globalSessionStore = NewInMemorySessionStore()
-	providers := make([]Provider, 0, 2)
+	providers := make([]Provider, 0, 4)
+	if compatClient != nil {
+		providers = append(providers, newOpenAICompatProvider(compatClient))
+	}
+	if githubModelsClient != nil {
+		providers = append(providers, newGitHubModelsProvider(githubModelsClient))
+	}
 	if bot.geminiClient != nil {
 		providers = append(providers, newGeminiProvider(bot.geminiClient))
 	}
