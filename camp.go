@@ -311,7 +311,7 @@ func formatCampUnpaid(regs []map[string]interface{}) string {
 func formatCampCapacity(regs []map[string]interface{}, capacity int) string {
 	total := len(regs)
 	if capacity <= 0 {
-		return fmt.Sprintf("🏕️ **Camp Power-Up Capacity**\n\n• Registered: %d\n• Capacity: not configured (set `CAMP_CAPACITY`)\n", total)
+		return fmt.Sprintf("🏕️ **Camp Power-Up Capacity**\n\n• Registered: %d\n• Capacity: unlimited - everyone's welcome! 🎉", total)
 	}
 	remaining := capacity - total
 	if remaining < 0 {
