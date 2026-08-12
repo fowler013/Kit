@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -13,12 +15,13 @@ type DiscordBot struct {
 	session      *discordgo.Session
 	geminiClient *GeminiClient
 	claudeClient *ClaudeClient
+	aiService    *AIService
 	startTime    string
 	botID        string
 }
 
 // NewDiscordBot creates a new Discord bot instance
-func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *ClaudeClient, startTime string) (*DiscordBot, error) {
+func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *ClaudeClient, startTime string, aiService *AIService) (*DiscordBot, error) {
 	if token == "" {
 		return nil, fmt.Errorf("Discord token is required")
 	}
@@ -33,6 +36,7 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		session:      session,
 		geminiClient: geminiClient,
 		claudeClient: claudeClient,
+		aiService:    aiService,
 		startTime:    startTime,
 	}
 
@@ -93,7 +97,8 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	log.Printf("🔵 Discord message received from %s: %s", m.Author.Username, m.Content)
 
 	// Process the message
-	response := d.generateDiscordResponse(m.Content, m.Author.ID)
+	hasCampRole := d.memberHasCampRole(s, m)
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole)
 
 	// Send response
 	_, err := s.ChannelMessageSend(m.ChannelID, response)
@@ -104,8 +109,57 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	}
 }
 
+// campLinksMessage builds the !links response from the camp base URL plus any
+// extra links configured via CAMP_EXTRA_LINKS ("Name|URL, Name|URL").
+func campLinksMessage() string {
+	base := globalCampClient.BaseURL()
+	if base == "" {
+		base = strings.TrimRight(os.Getenv("CAMP_API_BASE_URL"), "/")
+	}
+
+	var b strings.Builder
+	b.WriteString("🔗 **Camp Power-Up Links**\n\n")
+	if base != "" {
+		fmt.Fprintf(&b, "• 🏕️ Website & Registration: %s\n", base)
+		fmt.Fprintf(&b, "• 🔐 Admin Dashboard: %s/admin\n", base)
+	}
+	for _, entry := range strings.Split(os.Getenv("CAMP_EXTRA_LINKS"), ",") {
+		parts := strings.SplitN(strings.TrimSpace(entry), "|", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			fmt.Fprintf(&b, "• %s: %s\n", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		}
+	}
+	if base == "" {
+		b.WriteString("_No links configured yet. Set `CAMP_API_BASE_URL` and `CAMP_EXTRA_LINKS` in .env._")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// memberHasCampRole reports whether the message author holds the Discord role
+// configured to grant camp data access (CAMP_ALLOWED_ROLE).
+func (d *DiscordBot) memberHasCampRole(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	roleName := globalCampClient.AllowedRole()
+	if roleName == "" || m.GuildID == "" || m.Member == nil {
+		return false
+	}
+	roles, err := s.GuildRoles(m.GuildID)
+	if err != nil {
+		return false
+	}
+	roleIDs := make(map[string]string, len(roles))
+	for _, r := range roles {
+		roleIDs[r.ID] = r.Name
+	}
+	for _, id := range m.Member.Roles {
+		if strings.EqualFold(roleIDs[id], roleName) {
+			return true
+		}
+	}
+	return false
+}
+
 // generateDiscordResponse generates a response for Discord messages
-func (d *DiscordBot) generateDiscordResponse(content, userID string) string {
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 
@@ -116,23 +170,28 @@ func (d *DiscordBot) generateDiscordResponse(content, userID string) string {
 		return response
 	}
 
-	// Try AI clients
-	if d.geminiClient != nil {
-		if response, err := d.geminiClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Gemini response generated for Discord")
+	if cleanMessage == "!myid" {
+		return fmt.Sprintf("🪪 Your Discord user ID is: `%s`", userID)
+	}
+
+	if strings.EqualFold(strings.TrimSpace(cleanMessage), "!links") {
+		return campLinksMessage()
+	}
+
+	// Camp Power-Up data queries: answered directly, never sent to AI providers
+	if globalCampClient != nil {
+		if response := globalCampClient.HandleQuery(cleanMessage, userID, hasCampRole); response != "" {
 			return response
-		} else if err != nil {
-			log.Printf("⚠️  Gemini error for Discord, trying Claude: %v", err)
 		}
 	}
 
-	if d.claudeClient != nil {
-		if response, err := d.claudeClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Claude response generated for Discord")
-			return response
-		} else if err != nil {
-			log.Printf("⚠️  Claude error for Discord, using fallback: %v", err)
-		}
+	if d.aiService != nil {
+		return d.aiService.Respond(context.Background(), ChatRequest{
+			Platform:  "discord",
+			UserID:    userID,
+			ChannelID: channelID,
+			Message:   cleanMessage,
+		})
 	}
 
 	// Fallback to basic responses
@@ -176,7 +235,10 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 			"**Special Commands:**\n" +
 			"• `!status` - Check bot health\n" +
 			"• `!help` - Show this help message\n" +
-			"• `!version` - Show version info\n\n" +
+			"• `!version` - Show version info\n" +
+			"• `!myid` - Show your Discord user ID\n" +
+			"• `!links` - Camp Power-Up website links\n" +
+			"• `!camp` - Camp registration commands (authorized users)\n\n" +
 			"**How to use Kit on Discord:**\n" +
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in servers to get responses\n" +

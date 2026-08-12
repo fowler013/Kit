@@ -51,6 +51,7 @@ Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powere
 ## 📖 Documentation
 
 - **[HOW_TO_USE.md](HOW_TO_USE.md)** - Complete usage guide
+- **[USING_DISCORD.md](docs/USING_DISCORD.md)** - Beginner-friendly Discord interactions guide
 - **[SLACK_SETUP.md](SLACK_SETUP.md)** - Slack app configuration
 - **[DISCORD_SETUP.md](DISCORD_SETUP.md)** - Discord bot configuration
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development guidelines
@@ -125,17 +126,28 @@ What's the best way to learn programming?
 Can you review this code snippet for me?
 ```
 
+## 🧩 Platform Skills and Structure
+
+The app is intentionally split into platform adapters and shared service logic so Discord and Slack can evolve independently without duplicating the AI routing layer.
+
+- `Slack skill`: event routing, mentions, direct messages, slash commands
+- `Discord skill`: DM handling, mentions, server commands, bot status triggers
+- `Shared AI boundary`: provider orchestration, session memory, fallback logic
+- `MCP-ready request layer`: a thin adapter boundary for future external tool ingestion
+
 ## 🏗️ Project Structure
 
 ```
 Kit/
-├── main.go                 # Main entry point & Slack handlers
+├── main.go                 # Bootstraps Slack/Discord and app lifecycle
+├── service.go              # Shared AI router, chat request boundary, session memory
 ├── gemini.go               # Google Gemini AI client
 ├── claude.go               # Anthropic Claude AI client
-├── discord.go              # Discord bot handlers
+├── discord.go              # Discord adapter and message handling
 ├── go.mod                  # Go dependencies
 ├── Dockerfile              # Container build
 ├── docs/                   # Documentation
+│   ├── USING_DISCORD.md    # Beginner-friendly Discord usage guide
 │   ├── SLACK_SETUP.md      # Slack app configuration
 │   ├── DISCORD_SETUP.md    # Discord bot configuration
 │   ├── HOW_TO_USE.md       # Usage guide
@@ -144,9 +156,11 @@ Kit/
 │   ├── setup/              # Setup & configuration scripts
 │   ├── debug/              # Debugging scripts
 │   └── test/               # Test scripts
-└── config/                 # Configuration files
-    ├── docker-compose.yml  # Docker orchestration
-    └── redis.conf          # Redis configuration
+├── config/                 # Configuration files
+│   ├── docker-compose.yml  # Docker orchestration
+│   └── redis.conf          # Redis configuration
+├── .env.example            # Example environment configuration
+└── README.md               # Project overview and usage
 ```
 
 ## � Monitoring

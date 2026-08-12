@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type Bot struct {
 	discordBot   *DiscordBot
 	geminiClient *GeminiClient
 	claudeClient *ClaudeClient
+	aiService    *AIService
 	botUserID    string
 	startTime    string
 }
@@ -28,6 +30,9 @@ type Bot struct {
 var globalGeminiClient *GeminiClient
 var globalClaudeClient *ClaudeClient
 var globalBot *Bot
+var globalAIService *AIService
+var globalSessionStore SessionStore
+var globalCampClient *CampClient
 
 func main() {
 	// Load environment variables
@@ -62,6 +67,15 @@ func main() {
 		claudeModel = "claude-3-sonnet-20240229" // default model
 	}
 
+	githubModelsToken := os.Getenv("GITHUB_MODELS_TOKEN")
+	githubModelsModel := os.Getenv("GITHUB_MODELS_MODEL") // defaults inside the client
+
+	// Generic OpenAI-compatible endpoint (Groq, Mistral, OpenRouter, Ollama, OpenAI...)
+	compatBaseURL := os.Getenv("OPENAI_COMPAT_BASE_URL")
+	compatAPIKey := os.Getenv("OPENAI_COMPAT_API_KEY")
+	compatModel := os.Getenv("OPENAI_COMPAT_MODEL")
+	compatName := os.Getenv("OPENAI_COMPAT_NAME")
+
 	// Create Bot instance with configuration
 	bot := &Bot{
 		startTime: time.Now().Format("2006-01-02 15:04:05"),
@@ -85,8 +99,58 @@ func main() {
 		}
 	}
 
-	if bot.geminiClient == nil && bot.claudeClient == nil {
+	var githubModelsClient *GitHubModelsClient
+	if githubModelsToken != "" {
+		githubModelsClient = NewGitHubModelsClient(githubModelsToken, githubModelsModel)
+		if githubModelsClient != nil {
+			log.Println("🧠 GitHub Models initialized (model from GITHUB_MODELS_MODEL)")
+		}
+	}
+
+	var compatClient *OpenAICompatClient
+	if compatBaseURL != "" && compatModel != "" {
+		compatClient = NewOpenAICompatClient(compatBaseURL, compatAPIKey, compatModel, compatName)
+		if compatClient != nil {
+			log.Println("🧠 OpenAI-compatible provider initialized (see OPENAI_COMPAT_* config)")
+		}
+	}
+
+	if bot.geminiClient == nil && bot.claudeClient == nil && githubModelsClient == nil && compatClient == nil {
 		log.Println("⚠️  No AI clients available - using basic responses only")
+	}
+
+	globalSessionStore = NewInMemorySessionStore()
+	providers := make([]Provider, 0, 4)
+	if compatClient != nil {
+		providers = append(providers, newOpenAICompatProvider(compatClient))
+	}
+	if githubModelsClient != nil {
+		providers = append(providers, newGitHubModelsProvider(githubModelsClient))
+	}
+	if bot.geminiClient != nil {
+		providers = append(providers, newGeminiProvider(bot.geminiClient))
+	}
+	if bot.claudeClient != nil {
+		providers = append(providers, newClaudeProvider(bot.claudeClient))
+	}
+	bot.aiService = NewAIService(globalSessionStore, generateBasicResponse, providers...)
+	globalAIService = bot.aiService
+
+	// Camp Power-Up integration (optional)
+	campBaseURL := os.Getenv("CAMP_API_BASE_URL")
+	if campBaseURL != "" {
+		campCapacity, _ := strconv.Atoi(os.Getenv("CAMP_CAPACITY"))
+		globalCampClient = NewCampClient(
+			campBaseURL,
+			os.Getenv("CAMP_ADMIN_USERNAME"),
+			os.Getenv("CAMP_ADMIN_PASSWORD"),
+			os.Getenv("CAMP_ALLOWED_DISCORD_IDS"),
+			os.Getenv("CAMP_ALLOWED_ROLE"),
+			campCapacity,
+		)
+		if globalCampClient != nil {
+			log.Println("🏕️  Camp Power-Up integration enabled (CAMP_API_BASE_URL)")
+		}
 	}
 
 	// Initialize Slack if tokens are available
@@ -113,7 +177,7 @@ func main() {
 		log.Printf("🔵 Initializing Discord integration...")
 		log.Printf("🔑 Discord token loaded")
 
-		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime)
+		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime, bot.aiService)
 		if err != nil {
 			log.Printf("❌ Failed to create Discord bot: %v", err)
 		} else {
@@ -122,6 +186,20 @@ func main() {
 			// Start Discord bot
 			if err := discordBot.Start(); err != nil {
 				log.Printf("❌ Failed to start Discord bot: %v", err)
+			} else if globalCampClient != nil {
+				// Camp monitoring: new-registration alerts + website health
+				pollMinutes, _ := strconv.Atoi(os.Getenv("CAMP_POLL_MINUTES"))
+				if pollMinutes <= 0 {
+					pollMinutes = 5
+				}
+				monitor := NewCampMonitor(
+					globalCampClient,
+					discordBot.session,
+					os.Getenv("CAMP_ALERTS_CHANNEL"),
+					os.Getenv("CAMP_STATUS_CHANNEL"),
+					time.Duration(pollMinutes)*time.Minute,
+				)
+				monitor.Start()
 			}
 		}
 	}
@@ -412,14 +490,12 @@ func generateResponse(message, userID string) string {
 		return response
 	}
 
-	// Try Gemini AI first
-	if globalGeminiClient != nil {
-		if response, err := globalGeminiClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Gemini response generated successfully")
-			return response
-		} else if err != nil {
-			log.Printf("⚠️  Gemini error, falling back to basic response: %v", err)
-		}
+	if globalAIService != nil {
+		return globalAIService.Respond(context.Background(), ChatRequest{
+			Platform: "slack",
+			UserID:   userID,
+			Message:  cleanMessage,
+		})
 	}
 
 	// Fallback to basic responses
