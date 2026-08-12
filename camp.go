@@ -30,7 +30,8 @@ type CampClient struct {
 // to query registration data. allowedRole is an optional Discord role name
 // that also grants access. capacity is the max number of campers (0 = unknown).
 func NewCampClient(baseURL, username, password, allowedDiscordIDs, allowedRole string, capacity int) *CampClient {
-	if baseURL == "" {
+	validated, err := validateBaseURL(baseURL)
+	if err != nil {
 		return nil
 	}
 
@@ -44,7 +45,7 @@ func NewCampClient(baseURL, username, password, allowedDiscordIDs, allowedRole s
 
 	jar, _ := cookiejar.New(nil)
 	return &CampClient{
-		baseURL:     strings.TrimRight(baseURL, "/"),
+		baseURL:     validated,
 		username:    username,
 		password:    password,
 		allowedIDs:  allowed,
@@ -95,14 +96,14 @@ func (c *CampClient) login() error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
 // fetchRegistrations retrieves current registrations, logging in first if needed.
 func (c *CampClient) fetchRegistrations() ([]map[string]interface{}, error) {
 	fetch := func() (*campExport, error) {
-		resp, err := c.httpClient.Get(c.baseURL + "/admin/export-json")
+		resp, err := c.httpClient.Get(c.baseURL + "/admin/export-json") // #nosec G704 -- validated operator-configured URL
 		if err != nil {
 			return nil, err
 		}

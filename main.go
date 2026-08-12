@@ -103,7 +103,7 @@ func main() {
 	if githubModelsToken != "" {
 		githubModelsClient = NewGitHubModelsClient(githubModelsToken, githubModelsModel)
 		if githubModelsClient != nil {
-			log.Printf("🧠 GitHub Models initialized with model: %s", githubModelsClient.model)
+			log.Println("🧠 GitHub Models initialized (model from GITHUB_MODELS_MODEL)")
 		}
 	}
 
@@ -111,7 +111,7 @@ func main() {
 	if compatBaseURL != "" && compatModel != "" {
 		compatClient = NewOpenAICompatClient(compatBaseURL, compatAPIKey, compatModel, compatName)
 		if compatClient != nil {
-			log.Printf("🧠 %s initialized with model: %s (%s)", compatClient.name, compatClient.model, compatClient.baseURL)
+			log.Println("🧠 OpenAI-compatible provider initialized (see OPENAI_COMPAT_* config)")
 		}
 	}
 
@@ -149,7 +149,7 @@ func main() {
 			campCapacity,
 		)
 		if globalCampClient != nil {
-			log.Printf("🏕️  Camp Power-Up integration enabled: %s", campBaseURL)
+			log.Println("🏕️  Camp Power-Up integration enabled (CAMP_API_BASE_URL)")
 		}
 	}
 

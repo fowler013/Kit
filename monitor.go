@@ -73,10 +73,10 @@ func (m *CampMonitor) tick() {
 
 func (m *CampMonitor) checkWebsite() {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(m.camp.BaseURL())
+	resp, err := client.Get(m.camp.BaseURL()) // #nosec G704 -- validated operator-configured URL (see validateBaseURL)
 	up := err == nil && resp.StatusCode < 500
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	if !m.haveSite {
@@ -149,11 +149,11 @@ func (m *CampMonitor) checkRegistrations() {
 func (m *CampMonitor) post(nameOrID, message string) {
 	channelID := m.resolveChannel(nameOrID)
 	if channelID == "" {
-		log.Printf("⚠️  Camp monitor: channel %q not found - create it or check the name", nameOrID)
+		log.Println("⚠️  Camp monitor: configured alert channel not found - create it or check the name in .env")
 		return
 	}
 	if _, err := m.session.ChannelMessageSend(channelID, message); err != nil {
-		log.Printf("❌ Camp monitor: failed to post to %q: %v", nameOrID, err)
+		log.Printf("❌ Camp monitor: failed to post alert: %v", err)
 	}
 }
 

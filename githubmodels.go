@@ -107,7 +107,7 @@ func (g *GitHubModelsClient) GenerateResponse(message string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ GitHub Models API returned %d: %.200s", resp.StatusCode, string(respBody))
+		log.Printf("❌ GitHub Models API returned status %d", resp.StatusCode) // #nosec G706 -- StatusCode is an int
 		return "", fmt.Errorf("github models api status %d", resp.StatusCode)
 	}
 

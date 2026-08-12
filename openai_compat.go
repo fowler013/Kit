@@ -26,7 +26,8 @@ type OpenAICompatClient struct {
 // baseURL should be the API root, e.g. "https://api.groq.com/openai/v1"
 // or "http://localhost:11434/v1" for Ollama.
 func NewOpenAICompatClient(baseURL, apiKey, model, name string) *OpenAICompatClient {
-	if baseURL == "" || model == "" {
+	validated, err := validateBaseURL(baseURL)
+	if err != nil || model == "" {
 		return nil
 	}
 	if name == "" {
@@ -34,7 +35,7 @@ func NewOpenAICompatClient(baseURL, apiKey, model, name string) *OpenAICompatCli
 	}
 
 	return &OpenAICompatClient{
-		baseURL:    strings.TrimRight(baseURL, "/"),
+		baseURL:    validated,
 		apiKey:     apiKey,
 		model:      model,
 		name:       name,
@@ -92,7 +93,8 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 	}
 
 	url := o.baseURL + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	// baseURL is validated (scheme+host) in NewOpenAICompatClient; operator config, not user input.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body)) // #nosec G704 -- validated operator-configured URL
 	if err != nil {
 		return "", err
 	}
@@ -101,9 +103,9 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 		req.Header.Set("Authorization", "Bearer "+o.apiKey)
 	}
 
-	resp, err := o.httpClient.Do(req)
+	resp, err := o.httpClient.Do(req) // #nosec G704 -- request URL built from validated operator config
 	if err != nil {
-		log.Printf("❌ %s API error: %v", o.name, err)
+		log.Printf("❌ OpenAI-compatible API error: %v", err)
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -114,7 +116,7 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ %s API returned %d: %.200s", o.name, resp.StatusCode, string(respBody))
+		log.Printf("❌ OpenAI-compatible API returned status %d", resp.StatusCode) // #nosec G706 -- StatusCode is an int
 		return "", fmt.Errorf("%s api status %d", o.name, resp.StatusCode)
 	}
 
