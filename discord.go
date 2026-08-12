@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -13,12 +14,13 @@ type DiscordBot struct {
 	session      *discordgo.Session
 	geminiClient *GeminiClient
 	claudeClient *ClaudeClient
+	aiService    *AIService
 	startTime    string
 	botID        string
 }
 
 // NewDiscordBot creates a new Discord bot instance
-func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *ClaudeClient, startTime string) (*DiscordBot, error) {
+func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *ClaudeClient, startTime string, aiService *AIService) (*DiscordBot, error) {
 	if token == "" {
 		return nil, fmt.Errorf("Discord token is required")
 	}
@@ -33,6 +35,7 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		session:      session,
 		geminiClient: geminiClient,
 		claudeClient: claudeClient,
+		aiService:    aiService,
 		startTime:    startTime,
 	}
 
@@ -93,7 +96,7 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	log.Printf("🔵 Discord message received from %s: %s", m.Author.Username, m.Content)
 
 	// Process the message
-	response := d.generateDiscordResponse(m.Content, m.Author.ID)
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID)
 
 	// Send response
 	_, err := s.ChannelMessageSend(m.ChannelID, response)
@@ -105,7 +108,7 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 }
 
 // generateDiscordResponse generates a response for Discord messages
-func (d *DiscordBot) generateDiscordResponse(content, userID string) string {
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 
@@ -116,23 +119,13 @@ func (d *DiscordBot) generateDiscordResponse(content, userID string) string {
 		return response
 	}
 
-	// Try AI clients
-	if d.geminiClient != nil {
-		if response, err := d.geminiClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Gemini response generated for Discord")
-			return response
-		} else if err != nil {
-			log.Printf("⚠️  Gemini error for Discord, trying Claude: %v", err)
-		}
-	}
-
-	if d.claudeClient != nil {
-		if response, err := d.claudeClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Claude response generated for Discord")
-			return response
-		} else if err != nil {
-			log.Printf("⚠️  Claude error for Discord, using fallback: %v", err)
-		}
+	if d.aiService != nil {
+		return d.aiService.Respond(context.Background(), ChatRequest{
+			Platform:  "discord",
+			UserID:    userID,
+			ChannelID: channelID,
+			Message:   cleanMessage,
+		})
 	}
 
 	// Fallback to basic responses

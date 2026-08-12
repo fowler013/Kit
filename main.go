@@ -20,6 +20,7 @@ type Bot struct {
 	discordBot   *DiscordBot
 	geminiClient *GeminiClient
 	claudeClient *ClaudeClient
+	aiService    *AIService
 	botUserID    string
 	startTime    string
 }
@@ -28,6 +29,8 @@ type Bot struct {
 var globalGeminiClient *GeminiClient
 var globalClaudeClient *ClaudeClient
 var globalBot *Bot
+var globalAIService *AIService
+var globalSessionStore SessionStore
 
 func main() {
 	// Load environment variables
@@ -89,6 +92,17 @@ func main() {
 		log.Println("⚠️  No AI clients available - using basic responses only")
 	}
 
+	globalSessionStore = NewInMemorySessionStore()
+	providers := make([]Provider, 0, 2)
+	if bot.geminiClient != nil {
+		providers = append(providers, newGeminiProvider(bot.geminiClient))
+	}
+	if bot.claudeClient != nil {
+		providers = append(providers, newClaudeProvider(bot.claudeClient))
+	}
+	bot.aiService = NewAIService(globalSessionStore, generateBasicResponse, providers...)
+	globalAIService = bot.aiService
+
 	// Initialize Slack if tokens are available
 	if slackBotToken != "" && slackAppToken != "" {
 		log.Printf("🔵 Initializing Slack integration...")
@@ -114,7 +128,7 @@ func main() {
 		log.Printf("🔵 Initializing Discord integration...")
 		log.Printf("🔑 Discord Token: %s...", discordToken[:20])
 
-		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime)
+		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime, bot.aiService)
 		if err != nil {
 			log.Printf("❌ Failed to create Discord bot: %v", err)
 		} else {
@@ -413,14 +427,12 @@ func generateResponse(message, userID string) string {
 		return response
 	}
 
-	// Try Gemini AI first
-	if globalGeminiClient != nil {
-		if response, err := globalGeminiClient.GenerateResponse(cleanMessage); err == nil && response != "" {
-			log.Printf("🧠 Gemini response generated successfully")
-			return response
-		} else if err != nil {
-			log.Printf("⚠️  Gemini error, falling back to basic response: %v", err)
-		}
+	if globalAIService != nil {
+		return globalAIService.Respond(context.Background(), ChatRequest{
+			Platform: "slack",
+			UserID:   userID,
+			Message:  cleanMessage,
+		})
 	}
 
 	// Fallback to basic responses
