@@ -1,0 +1,170 @@
+{
+  "name": "Kit + CampPowerUp Community Server",
+  "description": "Shared community server template for the Kit AI bot and the CampPowerUp project",
+  "roles": [
+    {
+      "name": "Admin",
+      "color": 15158332,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": "administrator"
+    },
+    {
+      "name": "Moderator",
+      "color": 3447003,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": "moderator"
+    },
+    {
+      "name": "Developer",
+      "color": 10181046,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": "member"
+    },
+    {
+      "name": "Member",
+      "color": 3066993,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": "member"
+    },
+    {
+      "name": "Bot",
+      "color": 9807270,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": "bot"
+    }
+  ],
+  "categories": [
+    {
+      "name": "📌 WELCOME & INFO",
+      "access": "read-only",
+      "channels": [
+        {
+          "name": "welcome",
+          "type": "text",
+          "topic": "Start here! Introduction to the server, what Kit and CampPowerUp are, and how to get involved."
+        },
+        {
+          "name": "rules",
+          "type": "text",
+          "topic": "Server rules and code of conduct. Read before participating."
+        },
+        {
+          "name": "announcements",
+          "type": "text",
+          "topic": "Server-wide announcements from the staff team."
+        },
+        {
+          "name": "roles-info",
+          "type": "text",
+          "topic": "What each role means and how to get one."
+        }
+      ]
+    },
+    {
+      "name": "💬 COMMUNITY",
+      "access": "open",
+      "channels": [
+        {
+          "name": "general",
+          "type": "text",
+          "topic": "General chat — say hi, hang out, talk about anything (within the rules)."
+        },
+        {
+          "name": "introductions",
+          "type": "text",
+          "topic": "New here? Introduce yourself!"
+        },
+        {
+          "name": "off-topic",
+          "type": "text",
+          "topic": "Memes, games, and everything not related to the projects."
+        },
+        {
+          "name": "Community Voice",
+          "type": "voice",
+          "topic": ""
+        }
+      ]
+    },
+    {
+      "name": "🤖 KIT BOT",
+      "access": "open",
+      "channels": [
+        {
+          "name": "bot-commands",
+          "type": "text",
+          "topic": "Talk to Kit here! Use ! commands or mention @Kit. Keeps bot spam out of other channels."
+        },
+        {
+          "name": "bot-help",
+          "type": "text",
+          "topic": "Questions about using Kit, feature requests, and bug reports."
+        },
+        {
+          "name": "bot-logs",
+          "type": "text",
+          "topic": "Kit status and diagnostic logs. Staff and developers only.",
+          "access": "staff-only"
+        }
+      ]
+    },
+    {
+      "name": "🏕️ CAMPPOWERUP",
+      "access": "open",
+      "channels": [
+        {
+          "name": "camp-announcements",
+          "type": "text",
+          "topic": "CampPowerUp project news, releases, and milestones.",
+          "access": "read-only"
+        },
+        {
+          "name": "camp-general",
+          "type": "text",
+          "topic": "General discussion about CampPowerUp."
+        },
+        {
+          "name": "camp-dev",
+          "type": "text",
+          "topic": "Development discussion: architecture, PRs, issues, and technical planning."
+        },
+        {
+          "name": "camp-support",
+          "type": "text",
+          "topic": "Get help with CampPowerUp — ask questions, report problems."
+        },
+        {
+          "name": "camp-feedback",
+          "type": "text",
+          "topic": "Ideas, suggestions, and feedback for CampPowerUp."
+        }
+      ]
+    },
+    {
+      "name": "🔧 STAFF",
+      "access": "staff-only",
+      "channels": [
+        {
+          "name": "staff-chat",
+          "type": "text",
+          "topic": "Private discussion for Admins and Moderators."
+        },
+        {
+          "name": "mod-log",
+          "type": "text",
+          "topic": "Moderation actions log."
+        },
+        {
+          "name": "Staff Voice",
+          "type": "voice",
+          "topic": ""
+        }
+      ]
+    }
+  ]
+}
