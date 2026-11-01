@@ -133,3 +133,42 @@ func TestCampAccessAndCancellation(t *testing.T) {
 		t.Fatal("camp request did not cancel")
 	}
 }
+
+func TestCampRejectsInvalidBaseURL(t *testing.T) {
+	for _, baseURL := range []string{"", "camp.example.com", "file:///etc/passwd", "ftp://camp.example.com", "https:///missing-host"} {
+		if camp := NewCampClient(baseURL, "staff", "test", "123", "", 0); camp != nil {
+			t.Errorf("accepted invalid base URL %q", baseURL)
+		}
+	}
+}
+
+func TestCampRejectsCrossOriginRedirects(t *testing.T) {
+	var requests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	for _, path := range []string{"/admin/login", "/admin/export-json"} {
+		t.Run(path, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+			}))
+			defer server.Close()
+			camp := NewCampClient(server.URL, "staff", "test", "123", "", 0)
+			var err error
+			if path == "/admin/login" {
+				err = camp.login(context.Background())
+			} else {
+				_, err = camp.RegistrationCount()
+			}
+			if err == nil {
+				t.Fatal("cross-origin redirect must fail")
+			}
+			if requests.Load() != 0 {
+				t.Fatal("request followed a cross-origin redirect")
+			}
+		})
+	}
+}

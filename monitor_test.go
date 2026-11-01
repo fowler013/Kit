@@ -32,6 +32,41 @@ func TestWebsiteMonitorRejects404(t *testing.T) {
 	}
 }
 
+func TestWebsiteMonitorRedirects(t *testing.T) {
+	var requests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	for _, sameOrigin := range []bool{true, false} {
+		t.Run(fmt.Sprint("sameOrigin=", sameOrigin), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/healthy" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				destination := target.URL
+				if sameOrigin {
+					destination = "/healthy"
+				}
+				http.Redirect(w, r, destination, http.StatusFound)
+			}))
+			defer server.Close()
+			camp := NewCampClient(server.URL, "staff", "test", "123", "", 0)
+			monitor := &CampMonitor{camp: camp, haveSite: true, siteUp: sameOrigin}
+			monitor.checkWebsite(context.Background())
+			if monitor.siteUp != sameOrigin {
+				t.Fatalf("siteUp=%v, want %v", monitor.siteUp, sameOrigin)
+			}
+			if requests.Load() != 0 {
+				t.Fatal("website monitor followed a cross-origin redirect")
+			}
+		})
+	}
+}
+
 func TestMonitorCancelsInFlightRequest(t *testing.T) {
 	for _, website := range []bool{true, false} {
 		t.Run(fmt.Sprint("website=", website), func(t *testing.T) {

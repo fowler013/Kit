@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -134,7 +135,7 @@ func main() {
 
 // loadTemplate reads and parses the server template JSON.
 func loadTemplate(path string) (*ServerTemplate, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- local operator chooses the template via the CLI flag; arbitrary paths are intentional
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +153,7 @@ func apply(s *discordgo.Session, guildID string, tmpl *ServerTemplate, dryRun bo
 	if err != nil {
 		return fmt.Errorf("fetching guild %s: %w", guildID, err)
 	}
-	log.Printf("🔵 Target server: %s", guild.Name)
+	log.Printf("🔵 Target server: %s", strconv.Quote(guild.Name))
 	if dryRun {
 		log.Println("🔵 Dry run — no changes will be made")
 	}

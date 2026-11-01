@@ -85,13 +85,16 @@ func (m *CampMonitor) tick(ctx context.Context) {
 }
 
 func (m *CampMonitor) checkWebsite(ctx context.Context) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.camp.BaseURL(), nil)
+	client := &http.Client{
+		Timeout:       15 * time.Second,
+		CheckRedirect: m.camp.httpClient.CheckRedirect,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.camp.BaseURL(), nil) // #nosec G704 -- URL comes only from validated operator configuration, not chat input
 	if err != nil {
 		log.Printf("Camp monitor: invalid website request: %v", err)
 		return
 	}
-	resp, err := client.Do(req) // #nosec G704 -- validated operator-configured URL (see validateBaseURL)
+	resp, err := client.Do(req) // #nosec G704 -- validated operator-configured URL, same-origin redirects only
 	up := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400
 	if resp != nil {
 		_ = resp.Body.Close()

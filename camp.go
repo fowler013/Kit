@@ -110,12 +110,12 @@ func (c *CampClient) login(ctx context.Context) error {
 		return fmt.Errorf("camp admin credentials not configured")
 	}
 	form := url.Values{"username": {c.username}, "password": {c.password}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/admin/login", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/admin/login", strings.NewReader(form.Encode())) // #nosec G704 -- URL comes only from validated operator configuration, not chat input
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- validated operator-configured URL, same-origin redirects only
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (c *CampClient) fetchRegistrations() ([]map[string]interface{}, error) {
 func (c *CampClient) fetchRegistrationsContext(ctx context.Context) ([]map[string]interface{}, error) {
 	authRequired := errors.New("camp authentication required")
 	fetch := func() (*campExport, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/admin/export-json", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/admin/export-json", nil) // #nosec G704 -- URL comes only from validated operator configuration, not chat input
 		if err != nil {
 			return nil, err
 		}
