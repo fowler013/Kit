@@ -1,5 +1,5 @@
 # Multi-stage build for optimized Go binary
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install git and ca-certificates (needed for private repos and HTTPS)
 RUN apk add --no-cache git ca-certificates tzdata
@@ -44,12 +44,12 @@ COPY --from=builder /app/slack-ai-bot /slack-ai-bot
 # Use non-root user
 USER appuser
 
-# Expose health check port (if we add HTTP endpoints)
+# Railway may override this with PORT at runtime.
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/slack-ai-bot", "--health-check"] || exit 1
+    CMD ["/slack-ai-bot", "--health-check"]
 
 # Run the binary
 ENTRYPOINT ["/slack-ai-bot"]

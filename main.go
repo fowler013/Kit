@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -35,10 +39,42 @@ var globalSessionStore SessionStore
 var globalCampClient *CampClient
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:]); err != nil {
+		log.Printf("Kit stopped: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, args []string) error {
+	if len(args) > 0 {
+		if len(args) != 1 || args[0] != "--health-check" {
+			return fmt.Errorf("usage: kit-ai-bot [--health-check]")
+		}
+		port, err := healthPort(os.Getenv)
+		if err != nil {
+			return err
+		}
+		return probeHealth(ctx, port)
+	}
+
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found")
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("load .env: %w", err)
+		}
+		log.Println("No .env file; using process environment")
 	}
+	return runBot(ctx)
+}
+
+func runBot(ctx context.Context) error {
+	if err := validateRuntimeConfig(os.Getenv); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	log.Printf("🚀 Starting Kit AI Bot (Multi-Platform)...")
 
@@ -48,11 +84,6 @@ func main() {
 
 	// Get Discord token
 	discordToken := os.Getenv("DISCORD_BOT_TOKEN")
-
-	// Check if at least one platform is configured
-	if slackBotToken == "" && discordToken == "" {
-		log.Fatal("❌ At least one platform must be configured (SLACK_BOT_TOKEN or DISCORD_BOT_TOKEN)")
-	}
 
 	// Get AI configuration
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
@@ -137,6 +168,7 @@ func main() {
 	globalAIService = bot.aiService
 
 	// Camp Power-Up integration (optional)
+	globalCampClient = nil
 	campBaseURL := os.Getenv("CAMP_API_BASE_URL")
 	if campBaseURL != "" {
 		campCapacity, _ := strconv.Atoi(os.Getenv("CAMP_CAPACITY"))
@@ -150,8 +182,50 @@ func main() {
 		)
 		if globalCampClient != nil {
 			log.Println("🏕️  Camp Power-Up integration enabled (CAMP_API_BASE_URL)")
+		} else {
+			return fmt.Errorf("failed to initialize camp integration")
 		}
 	}
+
+	// Construct clients before exposing readiness; these pointers stay immutable.
+	if discordToken != "" {
+		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime, bot.aiService)
+		if err != nil {
+			return err
+		}
+		bot.discordBot = discordBot
+	}
+	var slackReady atomic.Bool
+	port, err := healthPort(os.Getenv)
+	if err != nil {
+		return err
+	}
+	server, serverDone, err := startHealthServer(port, func() bool {
+		return ctx.Err() == nil &&
+			(discordToken == "" || bot.discordBot.Ready()) &&
+			(slackBotToken == "" || slackReady.Load())
+	})
+	if err != nil {
+		return err
+	}
+	var monitorDone <-chan struct{}
+	defer func() {
+		cancel()
+		if monitorDone != nil {
+			<-monitorDone
+		}
+		if bot.discordBot != nil {
+			if err := bot.discordBot.Stop(); err != nil {
+				log.Printf("Discord shutdown failed: %v", err)
+			}
+		}
+		shutdownCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Health server shutdown failed: %v", err)
+		}
+	}()
+	log.Printf("Health checks listening on port %s (/healthz, /readyz)", port)
 
 	// Initialize Slack if tokens are available
 	if slackBotToken != "" && slackAppToken != "" {
@@ -163,9 +237,9 @@ func main() {
 		bot.slackAPI = api
 
 		// Test Slack connection
-		authTest, err := api.AuthTest()
+		authTest, err := api.AuthTestContext(ctx)
 		if err != nil {
-			log.Printf("❌ Failed to authenticate with Slack: %v", err)
+			return fmt.Errorf("authenticate Slack: %w", err)
 		} else {
 			bot.botUserID = authTest.UserID
 			log.Println("✅ Slack authenticated successfully")
@@ -177,33 +251,28 @@ func main() {
 		log.Printf("🔵 Initializing Discord integration...")
 		log.Printf("🔑 Discord token loaded")
 
-		discordBot, err := NewDiscordBot(discordToken, bot.geminiClient, bot.claudeClient, bot.startTime, bot.aiService)
-		if err != nil {
-			log.Printf("❌ Failed to create Discord bot: %v", err)
-		} else {
-			bot.discordBot = discordBot
-
-			// Start Discord bot
-			if err := discordBot.Start(); err != nil {
-				log.Printf("❌ Failed to start Discord bot: %v", err)
-			} else if globalCampClient != nil {
-				// Camp monitoring: new-registration alerts + website health
-				pollMinutes, _ := strconv.Atoi(os.Getenv("CAMP_POLL_MINUTES"))
-				if pollMinutes <= 0 {
-					pollMinutes = 5
-				}
-				monitor := NewCampMonitor(
-					globalCampClient,
-					discordBot.session,
-					os.Getenv("CAMP_ALERTS_CHANNEL"),
-					os.Getenv("CAMP_STATUS_CHANNEL"),
-					time.Duration(pollMinutes)*time.Minute,
-				)
-				monitor.Start()
+		discordBot := bot.discordBot
+		if err := discordBot.Start(); err != nil {
+			return fmt.Errorf("start Discord (check token and Message Content Intent): %w", err)
+		}
+		if globalCampClient != nil {
+			// Camp monitoring: new-registration alerts + website health
+			pollMinutes, _ := strconv.Atoi(os.Getenv("CAMP_POLL_MINUTES"))
+			if pollMinutes <= 0 {
+				pollMinutes = 5
 			}
+			monitor := NewCampMonitor(
+				globalCampClient,
+				discordBot.session,
+				os.Getenv("CAMP_ALERTS_CHANNEL"),
+				os.Getenv("CAMP_STATUS_CHANNEL"),
+				time.Duration(pollMinutes)*time.Minute,
+			)
+			monitorDone = monitor.Start(ctx)
 		}
 	}
 
+	slackDone := make(chan error, 1)
 	// Only proceed with Slack if it's configured
 	if bot.slackAPI != nil {
 		// Create Socket Mode client
@@ -213,51 +282,65 @@ func main() {
 			socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 		)
 
-		// Create context for graceful shutdown
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
 		log.Println("📡 Starting Slack event listener...")
 
 		// Start event handler goroutine
-		go handleEvents(ctx, socketClient, bot.slackAPI)
+		go handleEvents(ctx, socketClient, bot.slackAPI, &slackReady)
 
 		// Start the Socket Mode connection
 		log.Println("🔌 Connecting to Slack...")
-		if err := socketClient.Run(); err != nil {
-			log.Fatalf("❌ Failed to start Slack Socket Mode: %v", err)
-		}
+		go func() { slackDone <- socketClient.RunContext(ctx) }()
 	} else {
 		log.Println("🔵 Slack not configured, running Discord-only mode...")
-
-		// Keep the program running for Discord
-		select {}
+	}
+	select {
+	case <-ctx.Done():
+		log.Println("Stopping Kit...")
+		return nil
+	case err := <-serverDone:
+		return fmt.Errorf("health server stopped: %w", err)
+	case err := <-slackDone:
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("Slack Socket Mode stopped: %v", err)
 	}
 }
 
 // handleEvents processes all incoming Slack events
-func handleEvents(ctx context.Context, client *socketmode.Client, api *slack.Client) {
+func handleEvents(ctx context.Context, client *socketmode.Client, api *slack.Client, ready *atomic.Bool) {
+	defer ready.Store(false)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("🛑 Shutting down event listener...")
 			return
 
-		case event := <-client.Events:
+		case event, ok := <-client.Events:
+			if !ok {
+				return
+			}
 			log.Printf("📥 Received event: %s", event.Type)
 
 			switch event.Type {
 			case socketmode.EventTypeConnecting:
+				ready.Store(false)
 				log.Println("🔄 Connecting to Slack...")
 
 			case socketmode.EventTypeConnectionError:
+				ready.Store(false)
 				log.Println("❌ Connection error!")
 				if event.Request != nil {
 					client.Ack(*event.Request)
 				}
 
 			case socketmode.EventTypeConnected:
+				ready.Store(true)
 				log.Println("✅ Connected to Slack!")
+
+			case socketmode.EventTypeDisconnect, socketmode.EventTypeInvalidAuth:
+				ready.Store(false)
+				log.Printf("Slack disconnected: %s", event.Type)
 
 			case socketmode.EventTypeHello:
 				log.Println("👋 Received hello from Slack")

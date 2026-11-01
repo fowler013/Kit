@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,6 +34,7 @@ type CampClient struct {
 func NewCampClient(baseURL, username, password, allowedDiscordIDs, allowedRole string, capacity int) *CampClient {
 	validated, err := validateBaseURL(baseURL)
 	if err != nil {
+		log.Println("Invalid CAMP_API_BASE_URL; camp integration was not initialized")
 		return nil
 	}
 
@@ -51,7 +54,19 @@ func NewCampClient(baseURL, username, password, allowedDiscordIDs, allowedRole s
 		allowedIDs:  allowed,
 		allowedRole: strings.TrimSpace(allowedRole),
 		capacity:    capacity,
-		httpClient:  &http.Client{Timeout: 30 * time.Second, Jar: jar},
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Jar:     jar,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("camp redirect limit exceeded")
+				}
+				if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
+					return fmt.Errorf("camp redirected to another origin; configure the final base URL")
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -73,7 +88,11 @@ func (c *CampClient) BaseURL() string {
 
 // RegistrationCount returns the current number of registrations.
 func (c *CampClient) RegistrationCount() (int, error) {
-	regs, err := c.fetchRegistrations()
+	return c.registrationCount(context.Background())
+}
+
+func (c *CampClient) registrationCount(ctx context.Context) (int, error) {
+	regs, err := c.fetchRegistrationsContext(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -86,49 +105,77 @@ type campExport struct {
 	Registrations []map[string]interface{} `json:"registrations"`
 }
 
-func (c *CampClient) login() error {
+func (c *CampClient) login(ctx context.Context) error {
 	if c.username == "" || c.password == "" {
 		return fmt.Errorf("camp admin credentials not configured")
 	}
 	form := url.Values{"username": {c.username}, "password": {c.password}}
-	resp, err := c.httpClient.PostForm(c.baseURL+"/admin/login", form)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/admin/login", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("camp login failed (HTTP %d)", resp.StatusCode)
+	}
 	return nil
 }
 
 // fetchRegistrations retrieves current registrations, logging in first if needed.
 func (c *CampClient) fetchRegistrations() ([]map[string]interface{}, error) {
+	return c.fetchRegistrationsContext(context.Background())
+}
+
+func (c *CampClient) fetchRegistrationsContext(ctx context.Context) ([]map[string]interface{}, error) {
+	authRequired := errors.New("camp authentication required")
 	fetch := func() (*campExport, error) {
-		resp, err := c.httpClient.Get(c.baseURL + "/admin/export-json") // #nosec G704 -- validated operator-configured URL
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/admin/export-json", nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req) // #nosec G704 -- validated operator-configured URL, same-origin redirects only
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden ||
+			(resp.StatusCode == http.StatusOK && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html")) {
+			return nil, authRequired
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("camp export failed (HTTP %d)", resp.StatusCode)
+		}
+		const maxExportBytes = 4 << 20
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxExportBytes+1))
 		if err != nil {
 			return nil, err
 		}
+		if len(body) > maxExportBytes {
+			return nil, fmt.Errorf("camp export exceeds 4 MiB limit")
+		}
 		var parsed campExport
 		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, fmt.Errorf("unexpected response (auth required?)")
+			return nil, fmt.Errorf("camp export did not return valid JSON")
 		}
 		return &parsed, nil
 	}
 
 	parsed, err := fetch()
-	if err != nil {
+	if errors.Is(err, authRequired) {
 		// Retry once after logging in (covers session-based auth)
-		if loginErr := c.login(); loginErr != nil {
-			return nil, err
+		if loginErr := c.login(ctx); loginErr != nil {
+			return nil, loginErr
 		}
 		parsed, err = fetch()
-		if err != nil {
-			return nil, err
-		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	// Some deployments omit the "success" field; require it true only when present.
 	if (parsed.Success != nil && !*parsed.Success) || parsed.Registrations == nil {

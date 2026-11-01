@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -47,45 +48,65 @@ func NewCampMonitor(camp *CampClient, session *discordgo.Session, alertsChannel,
 }
 
 // Start launches the monitoring loop in a background goroutine.
-func (m *CampMonitor) Start() {
+func (m *CampMonitor) Start(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	if m == nil {
-		return
+		close(done)
+		return done
 	}
 	log.Printf("📡 Camp monitor started (every %s; alerts→%q, status→%q)", m.interval, m.alertsChannel, m.statusChannel)
 	go func() {
-		m.tick() // establish baselines immediately
+		defer close(done)
+		if ctx.Err() != nil {
+			return
+		}
+		m.tick(ctx) // establish baselines immediately
 		ticker := time.NewTicker(m.interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			m.tick()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.tick(ctx)
+			}
 		}
 	}()
+	return done
 }
 
-func (m *CampMonitor) tick() {
+func (m *CampMonitor) tick(ctx context.Context) {
 	if m.statusChannel != "" {
-		m.checkWebsite()
+		m.checkWebsite(ctx)
 	}
-	if m.alertsChannel != "" {
-		m.checkRegistrations()
+	if m.alertsChannel != "" && ctx.Err() == nil {
+		m.checkRegistrations(ctx)
 	}
 }
 
-func (m *CampMonitor) checkWebsite() {
+func (m *CampMonitor) checkWebsite(ctx context.Context) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(m.camp.BaseURL()) // #nosec G704 -- validated operator-configured URL (see validateBaseURL)
-	up := err == nil && resp.StatusCode < 500
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.camp.BaseURL(), nil)
+	if err != nil {
+		log.Printf("Camp monitor: invalid website request: %v", err)
+		return
+	}
+	resp, err := client.Do(req) // #nosec G704 -- validated operator-configured URL (see validateBaseURL)
+	up := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400
 	if resp != nil {
 		_ = resp.Body.Close()
+	}
+	if ctx.Err() != nil {
+		return
 	}
 
 	if !m.haveSite {
 		m.haveSite = true
 		m.siteUp = up
 		if up {
-			m.post(m.statusChannel, fmt.Sprintf("🟢 **Website monitor active** - %s is up. I'll post here if it goes down.", m.camp.BaseURL()))
+			m.post(ctx, m.statusChannel, fmt.Sprintf("🟢 **Website monitor active** - %s is up. I'll post here if it goes down.", m.camp.BaseURL()))
 		} else {
-			m.post(m.statusChannel, fmt.Sprintf("🔴 **Website monitor active** - %s appears to be DOWN right now!", m.camp.BaseURL()))
+			m.post(ctx, m.statusChannel, fmt.Sprintf("🔴 **Website monitor active** - %s appears to be DOWN right now!", m.camp.BaseURL()))
 		}
 		return
 	}
@@ -95,7 +116,7 @@ func (m *CampMonitor) checkWebsite() {
 	}
 	m.siteUp = up
 	if up {
-		m.post(m.statusChannel, fmt.Sprintf("🟢 **Website recovered** - %s is back up.", m.camp.BaseURL()))
+		m.post(ctx, m.statusChannel, fmt.Sprintf("🟢 **Website recovered** - %s is back up.", m.camp.BaseURL()))
 	} else {
 		detail := "no response"
 		if err != nil {
@@ -103,12 +124,12 @@ func (m *CampMonitor) checkWebsite() {
 		} else if resp != nil {
 			detail = resp.Status
 		}
-		m.post(m.statusChannel, fmt.Sprintf("🔴 **Website DOWN** - %s is not responding (%s). Check the Railway dashboard!", m.camp.BaseURL(), detail))
+		m.post(ctx, m.statusChannel, fmt.Sprintf("🔴 **Website DOWN** - %s is not responding (%s). Check the Railway dashboard!", m.camp.BaseURL(), detail))
 	}
 }
 
-func (m *CampMonitor) checkRegistrations() {
-	count, err := m.camp.RegistrationCount()
+func (m *CampMonitor) checkRegistrations(ctx context.Context) {
+	count, err := m.camp.registrationCount(ctx)
 	if err != nil {
 		log.Printf("⚠️  Camp monitor: registration check failed: %v", err)
 		return
@@ -139,27 +160,33 @@ func (m *CampMonitor) checkRegistrations() {
 		if diff > 1 {
 			plural = "s"
 		}
-		m.post(m.alertsChannel, fmt.Sprintf("🎉 **%d new camper%s registered!**%s\nAsk me `!camp roster` for details.", diff, plural, capacityNote))
+		m.post(ctx, m.alertsChannel, fmt.Sprintf("🎉 **%d new camper%s registered!**%s\nAsk me `!camp roster` for details.", diff, plural, capacityNote))
 	} else {
-		m.post(m.alertsChannel, fmt.Sprintf("📉 **%d registration(s) removed**%s", -diff, capacityNote))
+		m.post(ctx, m.alertsChannel, fmt.Sprintf("📉 **%d registration(s) removed**%s", -diff, capacityNote))
 	}
 }
 
 // post sends a message to a channel referenced by name or ID.
-func (m *CampMonitor) post(nameOrID, message string) {
-	channelID := m.resolveChannel(nameOrID)
+func (m *CampMonitor) post(ctx context.Context, nameOrID, message string) {
+	if ctx.Err() != nil {
+		return
+	}
+	channelID := m.resolveChannel(ctx, nameOrID)
 	if channelID == "" {
 		log.Println("⚠️  Camp monitor: configured alert channel not found - create it or check the name in .env")
 		return
 	}
-	if _, err := m.session.ChannelMessageSend(channelID, message); err != nil {
+	if _, err := m.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content:         message,
+		AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
+	}, discordgo.WithContext(ctx)); err != nil {
 		log.Printf("❌ Camp monitor: failed to post alert: %v", err)
 	}
 }
 
 // resolveChannel accepts a raw channel ID or a channel name (with or without
 // leading '#') and returns the channel ID, searching all guilds the bot is in.
-func (m *CampMonitor) resolveChannel(nameOrID string) string {
+func (m *CampMonitor) resolveChannel(ctx context.Context, nameOrID string) string {
 	nameOrID = strings.TrimPrefix(strings.TrimSpace(nameOrID), "#")
 	if nameOrID == "" {
 		return ""
@@ -167,18 +194,30 @@ func (m *CampMonitor) resolveChannel(nameOrID string) string {
 	if isAllDigits(nameOrID) {
 		return nameOrID // already an ID
 	}
+	m.session.State.RLock()
+	guildIDs := make([]string, 0, len(m.session.State.Guilds))
 	for _, guild := range m.session.State.Guilds {
-		channels, err := m.session.GuildChannels(guild.ID)
+		guildIDs = append(guildIDs, guild.ID)
+	}
+	m.session.State.RUnlock()
+	var channelID string
+	for _, guildID := range guildIDs {
+		channels, err := m.session.GuildChannels(guildID, discordgo.WithContext(ctx))
 		if err != nil {
+			log.Printf("Camp monitor: channel lookup failed: %v", err)
 			continue
 		}
 		for _, ch := range channels {
 			if ch.Type == discordgo.ChannelTypeGuildText && strings.EqualFold(ch.Name, nameOrID) {
-				return ch.ID
+				if channelID != "" {
+					log.Println("Camp monitor: channel name is ambiguous; configure a channel ID instead")
+					return ""
+				}
+				channelID = ch.ID
 			}
 		}
 	}
-	return ""
+	return channelID
 }
 
 func isAllDigits(s string) bool {

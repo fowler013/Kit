@@ -1,5 +1,6 @@
 # Binaries
 slack-ai-bot
+kit-ai-bot
 kit-bot
 main
 *.exe
@@ -22,6 +23,8 @@ go.work
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # Logs and temporary files
 *.log
