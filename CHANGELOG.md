@@ -9,7 +9,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Kit Changes
-- *(Add upcoming changes here)*
+- Make built-in Discord commands work in server channels without a mention, with explicit Message Content Intent.
+- Add HTTP liveness/readiness, a probe-only health command, startup validation, and cancellable shutdown/monitoring.
+- Update container/Compose configuration for Discord-only hosting and exclude secrets and generated binaries from builds.
+- Add synthetic Gateway reconnect, command-routing, camp authentication, and monitoring regression tests.
+- Document Railway deployment and live-service acceptance checks without claiming an unverified deployment.
 
 ### Scince Integration
 - *(Note relevant Scince updates that affect Kit)*

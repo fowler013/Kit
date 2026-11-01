@@ -1,6 +1,9 @@
 # Kit - Multi-Platform AI Bot 🤖
 
-Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powered assistance** to your team on **both Slack and Discord**. The bot supports real-time communication and delivers thoughtful, contextual responses to any question or request.
+Kit is a Go application that connects to Discord and/or Slack. Run it continuously
+as a Gateway bot, with optional AI providers and authorized CampPowerUp lookups.
+For hosting, server permissions, and go-live checks, start with
+**[Deploy Kit to Discord](docs/DEPLOYMENT.md)**.
 
 ## ✨ Features
 
@@ -18,10 +21,10 @@ Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powere
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.21+ installed
+- Go 1.25 installed (see the minimum/toolchain versions in `go.mod`)
 - Slack workspace with admin permissions (for Slack integration)
 - Discord server with admin permissions (for Discord integration)
-- Slack app configured (see [SLACK_SETUP.md](SLACK_SETUP.md))
+- Slack app configured only if using Slack (see [SLACK_SETUP.md](docs/SLACK_SETUP.md))
 
 ### Installation
 
@@ -33,13 +36,13 @@ Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powere
 
 2. **Install dependencies**
    ```bash
-   go mod tidy
+   go mod download
    ```
 
 3. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your platform tokens and AI API keys
+   # Set DISCORD_BOT_TOKEN; leave unused Slack and AI settings empty
    ```
 
 4. **Build and run**
@@ -50,10 +53,11 @@ Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powere
 
 ## 📖 Documentation
 
-- **[HOW_TO_USE.md](HOW_TO_USE.md)** - Complete usage guide
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Continuous hosting, health checks, camp connection, and go-live checklist
+- **[HOW_TO_USE.md](docs/HOW_TO_USE.md)** - Complete usage guide
 - **[USING_DISCORD.md](docs/USING_DISCORD.md)** - Beginner-friendly Discord interactions guide
-- **[SLACK_SETUP.md](SLACK_SETUP.md)** - Slack app configuration
-- **[DISCORD_SETUP.md](DISCORD_SETUP.md)** - Discord bot configuration
+- **[SLACK_SETUP.md](docs/SLACK_SETUP.md)** - Slack app configuration
+- **[DISCORD_SETUP.md](docs/DISCORD_SETUP.md)** - Discord bot configuration
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development guidelines
 - **[PROJECT_BOARD_SETUP.md](PROJECT_BOARD_SETUP.md)** - Project management
 
@@ -61,16 +65,16 @@ Kit is an intelligent AI bot built in Go that provides **Google Gemini AI-powere
 
 Your `.env` file should contain (configure platforms as needed):
 ```bash
-# Slack Configuration (optional)
-SLACK_BOT_TOKEN=xoxb-your-bot-token-here
-SLACK_APP_TOKEN=xapp-your-app-level-token-here
+# Slack Configuration (optional; set both or leave both empty)
+SLACK_BOT_TOKEN=
+SLACK_APP_TOKEN=
 
 # Discord Configuration (optional)
 DISCORD_BOT_TOKEN=your-discord-bot-token-here
 
-# AI Configuration (required)
-GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-1.5-flash
+# AI Configuration (optional; select an available model in your provider console)
+GEMINI_API_KEY=
+GEMINI_MODEL=
 ```
 
 ## 🌐 Platform Support
@@ -84,6 +88,7 @@ GEMINI_MODEL=gemini-1.5-flash
 ### Discord Integration  
 - WebSocket connection for real-time responses
 - Mentions and direct messages
+- Built-in `!` commands in server channels without a mention
 - Server and DM support
 - Rich embed formatting
 
@@ -179,7 +184,7 @@ tail -f bot.log
 
 ### Making Changes
 1. Edit `main.go`
-2. Test: `go run main.go`
+2. Test: `go test ./...`
 3. Build: `go build -o slack-ai-bot`
 4. Deploy: `./slack-ai-bot`
 
@@ -204,14 +209,10 @@ tail -f bot.log
 
 ## 🎯 Status
 
-✅ **Bot Successfully Running with Google Gemini AI**
-- Connected to Slack via Socket Mode
-- Google Gemini 1.5 Flash AI integration active
-- Intelligent responses to all questions
-- Receiving and responding to events
-- Handling mentions and direct messages
-- Comprehensive logging active
-- Automatic fallback system operational
+Deployment status depends on your configured credentials and hosting service.
+This repository does not establish that a live bot is online. Follow the
+[deployment acceptance checks](docs/DEPLOYMENT.md#5-go-live-acceptance-checks).
+`/healthz` reports HTTP liveness; `/readyz` reports chat-gateway readiness.
 
 ## 📞 Support
 

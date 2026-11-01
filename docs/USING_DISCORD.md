@@ -13,7 +13,7 @@ If it's been a while since you used Discord, the short version is:
 This repo treats Discord as a platform adapter, not as the AI logic itself.
 
 - `discord.go` owns the Discord socket connection and event handling.
-- The bot listens for DMs and server mentions.
+- The bot listens for DMs, server mentions, and its supported `!` commands.
 - It ignores bot messages and only responds to valid human input.
 - The shared AI/service layer decides which provider to use and handles fallback behavior.
 
@@ -48,6 +48,9 @@ The application strips the mention and sends a generated response in the same ch
 ```
 
 These are handled in the Discord adapter before AI generation.
+They work without a mention. `!myid`, `!links`, and authorized `!camp` commands
+are also available. Unrelated unmentioned conversation and other command
+prefixes are ignored.
 
 ## Discord mental model for contributors
 
@@ -62,7 +65,7 @@ When adding functionality, think in platform terms:
 ## Operational notes
 
 - Keep the AI orchestration separate from the Discord adapter.
-- Keep the bot message rules stable: ignore bot messages, handle DMs and mentions, and preserve user-facing commands.
+- Keep the bot message rules stable: ignore bot messages, handle DMs, mentions, and supported commands.
 - Add session behavior at the shared service boundary instead of in Discord-specific code.
 
 ## Good starter checklist

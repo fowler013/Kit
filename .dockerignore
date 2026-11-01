@@ -1,0 +1,17 @@
+.git
+.github
+.vscode
+.env
+.env.*
+!.env.example
+kit-ai-bot
+slack-ai-bot
+kit-bot
+*.exe
+*.test
+*.out
+*.log
+logs
+tmp
+backup
+archive

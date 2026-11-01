@@ -32,8 +32,7 @@ Kit now supports **both Slack and Discord** simultaneously! You can run Kit on o
    - **Requires OAuth2 Code Grant:** OFF
    - **Privileged Gateway Intents:**
      - ✅ **Message Content Intent** (REQUIRED)
-     - ✅ **Server Members Intent** (optional)
-     - ✅ **Presence Intent** (optional)
+     - Leave **Server Members Intent** and **Presence Intent** disabled; Kit does not request them.
 
 3. **Get Bot Token:**
    - Click "Reset Token" → "Yes, do it!"
@@ -46,11 +45,9 @@ Kit now supports **both Slack and Discord** simultaneously! You can run Kit on o
    - **Scopes:** Check "bot"
    - **Bot Permissions:** Check these:
      - ✅ **Send Messages**
-     - ✅ **Read Message History**
-     - ✅ **Use Slash Commands** (for future features)
-     - ✅ **Add Reactions** (optional)
-     - ✅ **Embed Links**
-     - ✅ **Attach Files** (optional)
+     - ✅ **View Channel**
+     - **Read Message History** is optional for viewing context.
+     - No Administrator, Manage Roles/Channels, slash-command, attachment, or reaction permissions are needed for the running bot.
 
 2. **Generate Invite URL:**
    - Copy the generated URL at the bottom
@@ -67,15 +64,15 @@ Kit now supports **both Slack and Discord** simultaneously! You can run Kit on o
 2. **Example .env configuration:**
    ```bash
    # Slack Configuration (optional)
-   SLACK_BOT_TOKEN=xoxb-your-slack-token
-   SLACK_APP_TOKEN=xapp-your-slack-app-token
+   SLACK_BOT_TOKEN=
+   SLACK_APP_TOKEN=
    
    # Discord Configuration
    DISCORD_BOT_TOKEN=your-discord-bot-token-here
    
-   # AI Configuration (required)
-   GEMINI_API_KEY=your-gemini-api-key
-   GEMINI_MODEL=gemini-1.5-flash
+   # AI Configuration (optional; leave empty for basic mode)
+   GEMINI_API_KEY=
+   GEMINI_MODEL=
    ```
 
 ### 5. Invite Bot to Server
@@ -86,6 +83,10 @@ Kit now supports **both Slack and Discord** simultaneously! You can run Kit on o
 4. **Complete captcha** if prompted
 
 ## 🎮 Using Kit on Discord
+
+Built-in commands work in server channels without mentioning Kit. Ordinary
+conversation still requires a mention (or a DM). For camp data, follow the
+[private-channel and authorization requirements](DEPLOYMENT.md#1-configure-discord).
 
 ### Basic Usage
 
@@ -137,7 +138,7 @@ Explain quantum computing
 DISCORD_BOT_TOKEN=your-token-here
 # Comment out or remove Slack tokens
 
-go run main.go
+go run .
 ```
 
 ### Option 2: Both Platforms
@@ -147,7 +148,7 @@ SLACK_BOT_TOKEN=your-slack-token
 SLACK_APP_TOKEN=your-slack-app-token
 DISCORD_BOT_TOKEN=your-discord-token
 
-go run main.go
+go run .
 ```
 
 ### Option 3: Slack Only (existing setup)
@@ -156,7 +157,7 @@ go run main.go
 SLACK_BOT_TOKEN=your-slack-token
 SLACK_APP_TOKEN=your-slack-app-token
 
-go run main.go
+go run .
 ```
 
 ## 📊 Expected Log Output
@@ -165,8 +166,8 @@ go run main.go
 🚀 Starting Kit AI Bot (Multi-Platform)...
 🧠 Gemini AI initialized with model: gemini-1.5-flash
 🔵 Initializing Discord integration...
-🔑 Discord Token: MTIzNDU2Nzg5MDEyMzQ1Njc4OTA...
-✅ Discord bot connected and ready!
+🔑 Discord token loaded
+✅ Discord gateway connection opened
 🔵 Discord bot logged in as: Kit#1234
 ```
 
@@ -201,6 +202,9 @@ go run main.go
 | Rich Formatting | ✅ | ✅ |
 
 ## 🚀 Next Steps
+
+For continuous hosting, restart behavior, readiness probes, and the operator
+acceptance checklist, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 1. **Test the bot** with basic commands
 2. **Invite to multiple servers** if needed

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -18,6 +19,7 @@ type DiscordBot struct {
 	aiService    *AIService
 	startTime    string
 	botID        string
+	mu           sync.RWMutex
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -31,6 +33,10 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Discord session: %v", err)
 	}
+	session.Identify.Intents = discordgo.IntentsGuilds |
+		discordgo.IntentsGuildMessages |
+		discordgo.IntentsDirectMessages |
+		discordgo.IntentsMessageContent
 
 	bot := &DiscordBot{
 		session:      session,
@@ -57,8 +63,22 @@ func (d *DiscordBot) Start() error {
 		return fmt.Errorf("failed to open Discord connection: %v", err)
 	}
 
-	log.Println("✅ Discord bot connected and ready!")
+	log.Println("✅ Discord gateway connection opened")
 	return nil
+}
+
+// Ready uses the gateway's heartbeat state, which is cleared on disconnect.
+func (d *DiscordBot) Ready() bool {
+	d.session.RLock()
+	connected := d.session.DataReady
+	d.session.RUnlock()
+	return connected && d.userID() != ""
+}
+
+func (d *DiscordBot) userID() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.botID
 }
 
 // Stop stops the Discord bot
@@ -69,8 +89,13 @@ func (d *DiscordBot) Stop() error {
 
 // onReady handles the ready event
 func (d *DiscordBot) onReady(s *discordgo.Session, event *discordgo.Ready) {
+	if event == nil || event.User == nil {
+		return
+	}
 	log.Printf("🔵 Discord bot logged in as: %s#%s", event.User.Username, event.User.Discriminator)
+	d.mu.Lock()
 	d.botID = event.User.ID
+	d.mu.Unlock()
 
 	// Set bot status
 	err := s.UpdateGameStatus(0, "🤖 Kit AI Assistant")
@@ -82,32 +107,52 @@ func (d *DiscordBot) onReady(s *discordgo.Session, event *discordgo.Ready) {
 // onMessageCreate handles new Discord messages
 func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Ignore messages from bots (including ourselves)
-	if m.Author.Bot {
+	if m == nil || m.Message == nil || m.Author == nil || m.Author.Bot || m.WebhookID != "" {
 		return
 	}
 
 	// Check if bot is mentioned or if it's a DM
 	isDM := m.GuildID == ""
-	isMentioned := strings.Contains(m.Content, "<@"+d.botID+">") || strings.Contains(m.Content, "<@!"+d.botID+">")
+	botID := d.userID()
+	isMentioned := botID != "" && (strings.Contains(m.Content, "<@"+botID+">") || strings.Contains(m.Content, "<@!"+botID+">"))
 
-	if !isDM && !isMentioned {
-		return // Only respond to DMs or mentions
+	if !isDM && !isMentioned && !isDiscordCommand(m.Content) {
+		return
 	}
 
-	log.Printf("🔵 Discord message received from %s: %s", m.Author.Username, m.Content)
+	log.Println("🔵 Discord request received")
 
 	// Process the message
 	hasCampRole := d.memberHasCampRole(s, m)
 	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole)
+	if strings.TrimSpace(response) == "" {
+		return
+	}
 
 	// Send response, splitting long messages to stay under Discord's limit
 	for _, chunk := range splitMessage(response, 1900) {
-		if _, err := s.ChannelMessageSend(m.ChannelID, chunk); err != nil {
+		if _, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+			Content:         chunk,
+			AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
+		}); err != nil {
 			log.Printf("❌ Failed to send Discord message: %v", err)
 			return
 		}
 	}
 	log.Printf("✅ Discord response sent successfully")
+}
+
+func isDiscordCommand(content string) bool {
+	fields := strings.Fields(strings.ToLower(content))
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "!status", "!health", "!help", "!commands", "!version", "!myid", "!links", "!camp":
+		return true
+	default:
+		return false
+	}
 }
 
 // splitMessage splits text into chunks of at most limit characters,
@@ -166,6 +211,7 @@ func (d *DiscordBot) memberHasCampRole(s *discordgo.Session, m *discordgo.Messag
 	}
 	roles, err := s.GuildRoles(m.GuildID)
 	if err != nil {
+		log.Printf("Camp role lookup failed; access denied: %v", err)
 		return false
 	}
 	roleIDs := make(map[string]string, len(roles))
@@ -185,14 +231,12 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 
-	log.Printf("💭 Generating Discord response for: '%s'", cleanMessage)
-
 	// Check for special commands first
 	if response := d.handleDiscordCommands(cleanMessage); response != "" {
 		return response
 	}
 
-	if cleanMessage == "!myid" {
+	if strings.EqualFold(cleanMessage, "!myid") {
 		return fmt.Sprintf("🪪 Your Discord user ID is: `%s`", userID)
 	}
 
@@ -201,7 +245,10 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	}
 
 	// Camp Power-Up data queries: answered directly, never sent to AI providers
-	if globalCampClient != nil {
+	if isCampQuery(cleanMessage) {
+		if globalCampClient == nil {
+			return "⚠️ Camp integration is not configured. Ask the operator to configure and verify the Camp Power-Up connection."
+		}
 		if response := globalCampClient.HandleQuery(cleanMessage, userID, hasCampRole); response != "" {
 			return response
 		}
@@ -223,8 +270,11 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 // cleanDiscordMessage removes bot mentions and cleans up the message
 func (d *DiscordBot) cleanDiscordMessage(content string) string {
 	// Remove bot mentions
-	content = strings.ReplaceAll(content, "<@"+d.botID+">", "")
-	content = strings.ReplaceAll(content, "<@!"+d.botID+">", "")
+	botID := d.userID()
+	if botID != "" {
+		content = strings.ReplaceAll(content, "<@"+botID+">", "")
+		content = strings.ReplaceAll(content, "<@!"+botID+">", "")
+	}
 
 	// Clean up extra spaces
 	content = strings.TrimSpace(content)
@@ -238,8 +288,14 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 
 	switch {
 	case cleanMessage == "!status" || cleanMessage == "!health":
-		aiStatus := "❌ Offline"
-		if d.geminiClient != nil {
+		aiStatus := "Basic responses only (no AI provider configured)"
+		if d.aiService != nil && len(d.aiService.providers) > 0 {
+			names := make([]string, 0, len(d.aiService.providers))
+			for _, provider := range d.aiService.providers {
+				names = append(names, provider.Name())
+			}
+			aiStatus = "Configured: " + strings.Join(names, ", ") + " (availability checked per request)"
+		} else if d.geminiClient != nil {
 			aiStatus = "✅ Online (Gemini)"
 		} else if d.claudeClient != nil {
 			aiStatus = "✅ Online (Claude)"
@@ -264,10 +320,11 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 			"**How to use Kit on Discord:**\n" +
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in servers to get responses\n" +
+			"• Use the listed !commands in server channels without a mention\n" +
 			"• Ask questions, request help, or just chat!\n\n" +
 			"I'm powered by AI and ready to assist! 🧠✨"
 
-	case strings.Contains(cleanMessage, "!version"):
+	case cleanMessage == "!version":
 		return "🤖 **Kit v1.0 - Discord Edition**\n" +
 			"• Built with Go + DiscordGo\n" +
 			"• Powered by Google Gemini AI\n" +
