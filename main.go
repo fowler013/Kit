@@ -182,6 +182,11 @@ func runBot(ctx context.Context) error {
 		)
 		if globalCampClient != nil {
 			log.Println("🏕️  Camp Power-Up integration enabled (CAMP_API_BASE_URL)")
+			if n := globalCampClient.SetAllowedChannels(os.Getenv("CAMP_ALLOWED_CHANNEL_IDS")); n == 0 {
+				log.Println("⚠️  CAMP_ALLOWED_CHANNEL_IDS is not set; camp data is only answered in direct messages")
+			} else {
+				log.Printf("🔒 Camp data limited to %d staff channel(s) and direct messages", n)
+			}
 		} else {
 			return fmt.Errorf("failed to initialize camp integration")
 		}

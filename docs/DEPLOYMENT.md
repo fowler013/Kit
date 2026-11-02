@@ -23,11 +23,14 @@ the proposed roles/channels before a separately authorized run without
 bot should not retain.
 
 For camp data, install the bot only in your trusted camp server. Use a private
-staff channel and deny ordinary members View Channel there. **Camp answers are
-posted in the channel where the question was asked.** User/role authorization
-protects who may ask, not who can read that channel. Do not give this camp-data
-bot access to public channels. DMs require a user ID allowlist because a DM has
-no server role context. Prefer explicit user IDs to role names.
+staff channel, deny ordinary members View Channel there, and list its numeric
+ID in `CAMP_ALLOWED_CHANNEL_IDS`. **Camp answers are posted in the channel where
+the question was asked**, so Kit only shows registration data in DMs or in the
+listed channels (and threads inside them). Authorized staff who ask anywhere
+else get a privacy notice instead of data, and unauthorized users get a refusal.
+Kit cannot see who may read a listed channel, so only list channels that are
+actually private. DMs require a user ID allowlist because a DM has no server
+role context. Prefer explicit user IDs to role names.
 
 ## 2. Configure and run locally
 
@@ -143,6 +146,9 @@ CAMP_ADMIN_PASSWORD=
 CAMP_ALLOWED_DISCORD_IDS=
 # Optional, trusted server role name:
 CAMP_ALLOWED_ROLE=
+# Numeric IDs of private staff channels allowed to show camp data. DMs always
+# work; if empty, camp data is only answered in DMs:
+CAMP_ALLOWED_CHANNEL_IDS=
 # Optional:
 CAMP_CAPACITY=30
 CAMP_POLL_MINUTES=5
@@ -150,7 +156,9 @@ CAMP_ALERTS_CHANNEL=
 CAMP_STATUS_CHANNEL=
 ```
 
-Use `!myid` for staff user IDs. Prefer numeric channel IDs for alerts; duplicate
+Use `!myid` for staff user IDs. In Discord, enable Developer Mode and use
+right-click > Copy Channel ID for `CAMP_ALLOWED_CHANNEL_IDS`. Prefer numeric
+channel IDs for alerts; duplicate
 channel names are rejected rather than choosing an arbitrary server. Check
 channel visibility with a non-staff account before using roster or payment
 commands. Kit composes camp answers directly, not through AI providers.
@@ -170,8 +178,10 @@ These are operator checks, not a claim that this checkout has been deployed:
 - Confirm ordinary unmentioned conversation and other bots' commands are ignored.
 - If AI is configured, ask one non-sensitive question and check the provider's
   response; if not configured, expect basic mode.
-- With camp enabled, authorized staff can run `!camp stats`; unauthorized users
-  receive a refusal. Exercise roster/payment commands only in a private channel.
+- With camp enabled, authorized staff can run `!camp stats` in a listed staff
+  channel or a DM. In any other channel they get a privacy notice and no data;
+  unauthorized users receive a refusal. Exercise roster/payment commands only in
+  a private channel.
 - Query `/healthz` (HTTP listener alive) and `/readyz` (all configured chat
   gateways ready). `/readyz` must be 503 before connection or during disconnect.
 - Run `/slack-ai-bot --health-check` inside the container: exit 0 means ready;

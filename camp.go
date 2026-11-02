@@ -23,8 +23,26 @@ type CampClient struct {
 	password    string
 	allowedIDs  map[string]bool
 	allowedRole string
-	capacity    int
-	httpClient  *http.Client
+	// allowedChannels are the server channels where registration data may be
+	// shown. Empty means servers are never allowed; DMs are always allowed.
+	allowedChannels map[string]bool
+	capacity        int
+	httpClient      *http.Client
+}
+
+// campPrivacyNotice replaces registration data when an authorized user asks
+// from a channel that is not a staff channel.
+const campPrivacyNotice = "🔒 For privacy, camp registration data is only shown in staff channels or in a direct message with me."
+
+// parseIDSet turns a comma-separated list of IDs into a set, skipping blanks.
+func parseIDSet(list string) map[string]bool {
+	ids := make(map[string]bool)
+	for _, id := range strings.Split(list, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
 }
 
 // NewCampClient creates a client for the Camp Power-Up registration API.
@@ -38,20 +56,12 @@ func NewCampClient(baseURL, username, password, allowedDiscordIDs, allowedRole s
 		return nil
 	}
 
-	allowed := make(map[string]bool)
-	for _, id := range strings.Split(allowedDiscordIDs, ",") {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			allowed[id] = true
-		}
-	}
-
 	jar, _ := cookiejar.New(nil)
 	return &CampClient{
 		baseURL:     validated,
 		username:    username,
 		password:    password,
-		allowedIDs:  allowed,
+		allowedIDs:  parseIDSet(allowedDiscordIDs),
 		allowedRole: strings.TrimSpace(allowedRole),
 		capacity:    capacity,
 		httpClient: &http.Client{
@@ -76,6 +86,23 @@ func (c *CampClient) AllowedRole() string {
 		return ""
 	}
 	return c.allowedRole
+}
+
+// SetAllowedChannels limits where registration data may be shown in servers to
+// a comma-separated list of channel IDs and returns how many were configured.
+// Call it once during startup, before the client is shared.
+func (c *CampClient) SetAllowedChannels(channelIDs string) int {
+	if c == nil {
+		return 0
+	}
+	c.allowedChannels = parseIDSet(channelIDs)
+	return len(c.allowedChannels)
+}
+
+// ChannelAllowed reports whether registration data may be shown in a server
+// channel. Direct messages are handled by the caller and are always allowed.
+func (c *CampClient) ChannelAllowed(channelID string) bool {
+	return c != nil && c.allowedChannels[channelID]
 }
 
 // BaseURL returns the configured Camp Power-Up base URL.
