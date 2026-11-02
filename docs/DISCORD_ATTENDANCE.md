@@ -3,8 +3,10 @@
 Kit is a private Discord interface to the CampPowerUp registration service's
 `/api/discord/attendance/v1` contract. CampPowerUp, not Kit or an AI model,
 owns persistent attendance, family linkage, staff authorization and pickup
-rosters. This implementation does not deploy or enable the feature, register
-Discord commands, modify channels/roles, or contact production during tests.
+rosters. This implementation does not deploy or enable the feature, modify
+channels/roles, or contact production during tests. The slash-command suite
+registers the command at startup when guild registration is enabled; command
+visibility does not enable backend access.
 There is no photo-ID collection or WhatsApp integration.
 
 ## Parent and staff experience
@@ -150,16 +152,18 @@ Keep the feature off until **all** of these are separately approved and verified
    session/CSRF workflow, not Kit or a parent's assertion.
 3. Configure distinct scoped credentials and identical session/guild/allowlist
    settings privately in both services. Do not copy legacy admin credentials.
-4. Separately register the guild-scoped `/attendance` command defined by
+4. Review the guild-scoped `/attendance` command defined by
    `attendanceCommand()` in `discord_attendance.go`. Its `parent` and `staff`
    subcommands require string `session` and `date`; only `staff` accepts an
    optional string `camper`. The definition disables DMs and uses
    `Use Application Commands` permission, not `Send Messages` or Administrator.
    `go run . --print-attendance-command` prints the exact registration JSON
    locally, without loading `.env`, starting the bot or making network calls.
-   Submit that definition to the approved guild only in the separately
-   authorized operator registration step. Registration is deliberately not
-   automatic at startup.
+   The full command suite now registers automatically on startup when
+   `DISCORD_GUILD_ID` (or its `DISCORD_ATTENDANCE_GUILD_ID` fallback) is set.
+   Set `DISCORD_REGISTER_COMMANDS=false` to keep registration operator-managed.
+   Registration includes the disabled attendance command; keep
+   `DISCORD_ATTENDANCE_ENABLED` unset until all backend rollout gates pass.
 5. Test using separate synthetic linked-parent, unrelated-parent and staff
    accounts in the actual deployment, including revocation, expired controls,
    backend outages, stale state, and pickup revocation. Verify every response

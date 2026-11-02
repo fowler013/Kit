@@ -32,6 +32,8 @@ func isolatedBotEnvironment(t *testing.T) string {
 	t.Helper()
 	for _, key := range []string{
 		"DISCORD_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN",
+		"DISCORD_GUILD_ID", "DISCORD_APPLICATION_ID", "DISCORD_REGISTER_COMMANDS",
+		"DISCORD_ATTENDANCE_ENABLED", "DISCORD_ATTENDANCE_GUILD_ID", "DISCORD_ATTENDANCE_STAFF_IDS",
 		"GEMINI_API_KEY", "CLAUDE_API_KEY", "GITHUB_MODELS_TOKEN",
 		"OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL", "OPENAI_COMPAT_API_KEY",
 		"CAMP_API_BASE_URL", "CAMP_ADMIN_USERNAME", "CAMP_ADMIN_PASSWORD",
@@ -89,12 +91,23 @@ func awaitProbe(t *testing.T, port string, ready bool) {
 
 func TestDiscordRuntimeLifecycle(t *testing.T) {
 	port := isolatedBotEnvironment(t)
+	t.Setenv("DISCORD_GUILD_ID", slashTestGuild)
+	t.Setenv("DISCORD_APPLICATION_ID", slashTestApp)
 	connections := make(chan *testGateway, 4)
 	messages := make(chan discordgo.MessageSend, 4)
+	registrations := make(chan []*discordgo.ApplicationCommand, 4)
 	intents := make(chan int, 4)
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/guilds/"+slashTestGuild+"/commands"):
+			var commands []*discordgo.ApplicationCommand
+			if err := json.NewDecoder(r.Body).Decode(&commands); err != nil {
+				t.Error(err)
+			}
+			registrations <- commands
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `[]`)
 		case strings.HasSuffix(r.URL.Path, "/gateway"):
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"url":%q}`, strings.Replace(serverURL, "http:", "ws:", 1)+"/socket")
@@ -195,6 +208,14 @@ func TestDiscordRuntimeLifecycle(t *testing.T) {
 		t.Fatal("no synthetic gateway connection")
 	}
 	awaitProbe(t, port, true)
+	select {
+	case commands := <-registrations:
+		if len(commands) != len(discordCommands()) {
+			t.Fatal("startup did not register the complete command suite")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("startup did not register guild commands")
+	}
 	if got := <-intents; got != int(discordgo.IntentsGuilds|discordgo.IntentsGuildMessages|discordgo.IntentsDirectMessages|discordgo.IntentsMessageContent) {
 		t.Fatalf("wrong identify intents: %d", got)
 	}

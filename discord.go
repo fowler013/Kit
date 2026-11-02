@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -21,6 +22,8 @@ type DiscordBot struct {
 	botID        string
 	mu           sync.RWMutex
 	attendance   *discordAttendance
+	commands     discordCommandConfig
+	registerOnce sync.Once
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -45,6 +48,7 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		claudeClient: claudeClient,
 		aiService:    aiService,
 		startTime:    startTime,
+		commands:     discordCommandsFromEnv(),
 	}
 	attendance, err := attendanceFromEnv()
 	if err != nil {
@@ -57,7 +61,7 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 	// Add event handlers
 	session.AddHandler(bot.onReady)
 	session.AddHandler(bot.onMessageCreate)
-	session.AddHandler(bot.onAttendanceInteraction)
+	session.AddHandler(bot.onDiscordInteraction)
 
 	return bot, nil
 }
@@ -105,6 +109,7 @@ func (d *DiscordBot) onReady(s *discordgo.Session, event *discordgo.Ready) {
 	d.mu.Lock()
 	d.botID = event.User.ID
 	d.mu.Unlock()
+	d.registerOnce.Do(func() { d.registerDiscordCommands(s) })
 
 	// Set bot status
 	err := s.UpdateGameStatus(0, "🤖 Kit AI Assistant")
@@ -158,7 +163,7 @@ func isDiscordCommand(content string) bool {
 		return false
 	}
 	switch fields[0] {
-	case "!status", "!health", "!help", "!commands", "!version", "!myid", "!links", "!camp":
+	case "!status", "!health", "!help", "!commands", "!version", "!myid", "!links", "!camp", "!kit":
 		return true
 	default:
 		return false
@@ -168,6 +173,9 @@ func isDiscordCommand(content string) bool {
 // splitMessage splits text into chunks of at most limit characters,
 // preferring to break on newlines so formatting stays intact.
 func splitMessage(text string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
 	if len(text) <= limit {
 		return []string{text}
 	}
@@ -176,6 +184,12 @@ func splitMessage(text string, limit int) []string {
 		cut := strings.LastIndex(text[:limit], "\n")
 		if cut <= 0 {
 			cut = limit
+			for cut > 0 && !utf8.RuneStart(text[cut]) {
+				cut--
+			}
+			if cut == 0 {
+				_, cut = utf8.DecodeRuneInString(text)
+			}
 		}
 		chunks = append(chunks, strings.TrimRight(text[:cut], "\n"))
 		text = strings.TrimLeft(text[cut:], "\n")
@@ -259,6 +273,9 @@ func (d *DiscordBot) campChannelAllowed(s *discordgo.Session, m *discordgo.Messa
 func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool, campChannelOK func() bool) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
+	if fields := strings.Fields(cleanMessage); len(fields) > 0 && strings.EqualFold(fields[0], "!kit") {
+		cleanMessage = strings.TrimSpace(cleanMessage[len(fields[0]):])
+	}
 
 	// Check for special commands first
 	if response := d.handleDiscordCommands(cleanMessage); response != "" {
