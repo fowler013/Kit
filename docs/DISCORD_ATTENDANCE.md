@@ -24,18 +24,30 @@ or edit never falls back to a public channel, DM, announcement, or an AI
 provider. Mentions are suppressed. DMs are deliberately unsupported because
 the API requires the actual interaction's approved guild and member identity.
 
-Parents explicitly select from their approved linked opaque camper handles,
-even when only one is linked. Multiple campers are never silently reduced to
-the first. Ask leadership privately to identify a handle using the trusted
-registration workflow if needed; Kit does not guess names or identities.
+Parents explicitly select from their approved linked campers, even when only
+one is linked. Authorized display names appear as ephemeral labels when the
+backend provides them. Duplicate names receive distinct numbered labels;
+missing names (including older backend responses) use the explicit
+`Camper name unavailable` fallback rather than exposing an opaque ID.
+Component values and all backend requests continue to use opaque IDs. Multiple
+campers are never silently reduced to the first. Names are sanitized for
+Discord formatting and mentions before display.
 Parents inspect status and can **request arrival** or **request pickup**.
 A request never checks a child in or out and never authorizes release.
 No links means contacting camp leadership, not self-linking.
 A Verified Parent role alone grants no attendance access.
 
 Allowlisted staff privately select pending requests or supply a handle obtained
-through their private authorized staff workflow. Staff can confirm physical
+through their private authorized staff workflow. Pending labels and status
+responses use authorized display names when available; missing names use the
+same generic fallback. Staff can confirm physical
 arrival directly, including without a parent request. To release a child:
+
+The backend may return an optional, nullable `display_name` string on each
+`/campers` item, `/status` and `/staff-status` response, each `/pending` item,
+and successful request or confirmation status objects. Kit treats absent,
+`null`, empty, or formatting-only values as unavailable and never substitutes
+the camper ID in a user-facing label.
 
 1. Review fresh staff status and the current active authorized pickup roster.
 2. Select the authorized pickup person privately.

@@ -33,12 +33,13 @@ type attendanceClient struct {
 }
 
 type attendanceStatus struct {
-	CamperID  string  `json:"camper_id"`
-	SessionID string  `json:"session_id"`
-	Date      string  `json:"date"`
-	State     string  `json:"state"`
-	Version   int     `json:"version"`
-	UpdatedAt *string `json:"updated_at"`
+	CamperID    string  `json:"camper_id"`
+	DisplayName string  `json:"display_name"`
+	SessionID   string  `json:"session_id"`
+	Date        string  `json:"date"`
+	State       string  `json:"state"`
+	Version     int     `json:"version"`
+	UpdatedAt   *string `json:"updated_at"`
 }
 
 type attendancePickup struct {

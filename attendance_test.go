@@ -113,11 +113,11 @@ func TestAttendancePrivateParentAndStaffFlow(t *testing.T) {
 			return
 		}
 		status := func() attendanceStatus {
-			return attendanceStatus{CamperID: "camper-a", SessionID: "test-camp", Date: date, State: state, Version: version}
+			return attendanceStatus{CamperID: "camper-a", DisplayName: "Synthetic Camper", SessionID: "test-camp", Date: date, State: state, Version: version}
 		}
 		switch endpoint {
 		case "/campers":
-			fmt.Fprint(w, `{"campers":[{"camper_id":"camper-a"},{"camper_id":"camper-b"}]}`)
+			fmt.Fprint(w, `{"campers":[{"camper_id":"camper-a","display_name":"Synthetic Camper"},{"camper_id":"camper-b","display_name":"Second Camper"}]}`)
 		case "/status", "/staff-status":
 			json.NewEncoder(w).Encode(status())
 		case "/pending":
@@ -173,12 +173,12 @@ func TestAttendancePrivateParentAndStaffFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu := attendanceSelect(t, parent)
-	if len(menu.Options) != 2 || len(writes) != 0 {
+	if len(menu.Options) != 2 || menu.Options[0].Label != "1. Synthetic Camper" || menu.Options[0].Value != "camper-a" || len(writes) != 0 {
 		t.Fatal("multiple campers must require selection")
 	}
 	parent, err = attendanceClick(t, a, "200", menu.CustomID, "401", "camper-a")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !strings.Contains(parent.content, "Camper **Synthetic Camper**") || strings.Contains(parent.content, "camper-a") {
+		t.Fatalf("%s %v", parent.content, err)
 	}
 	arrivalKey := attendanceButton(t, parent, "Request arrival")
 	parent, err = attendanceClick(t, a, "200", arrivalKey, "402")
@@ -198,9 +198,12 @@ func TestAttendancePrivateParentAndStaffFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu = attendanceSelect(t, staff)
+	if menu.Options[0].Label != "1. Synthetic Camper - arrival_requested" || menu.Options[0].Value != "camper-a" {
+		t.Fatal("staff pending selection did not use the authorized name and retain its ID value")
+	}
 	staff, err = attendanceClick(t, a, "300", menu.CustomID, "403", "camper-a")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !strings.Contains(staff.content, "Camper **Synthetic Camper**") || strings.Contains(staff.content, "camper-a") {
+		t.Fatalf("%s %v", staff.content, err)
 	}
 	staff, err = attendanceClick(t, a, "300", attendanceButton(t, staff, "I confirm physical arrival"), "404")
 	if err != nil || state != "present" || !strings.Contains(staff.content, "confirmation recorded") {
@@ -210,6 +213,10 @@ func TestAttendancePrivateParentAndStaffFlow(t *testing.T) {
 	parent, err = a.show(ctx, attendanceView{actor: "200", guild: "100", session: "test-camp", date: date, camper: "camper-a"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	parent, err = attendanceClick(t, a, "200", attendanceButton(t, parent, "Refresh status"), "refresh-parent")
+	if err != nil || !strings.Contains(parent.content, "Camper **Synthetic Camper**") {
+		t.Fatalf("%s %v", parent.content, err)
 	}
 	_, err = attendanceClick(t, a, "200", attendanceButton(t, parent, "Request pickup"), "405")
 	if err != nil || state != "pickup_requested" {
@@ -224,7 +231,7 @@ func TestAttendancePrivateParentAndStaffFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu = attendanceSelect(t, staff)
-	if menu.Options[0].Label != "Synthetic Authorized Adult" {
+	if menu.Options[0].Label != "1. Synthetic Authorized Adult" || menu.Options[0].Value != "pickup-a" {
 		t.Fatal("no private pickup name")
 	}
 	staff, err = attendanceClick(t, a, "300", menu.CustomID, "407", "pickup-a")
@@ -727,7 +734,7 @@ func TestAttendanceCommandDefinitionAndDirectStaffArrival(t *testing.T) {
 	}
 	date := ""
 	a, today := attendanceFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(attendanceStatus{CamperID: "camper-a", SessionID: "test-camp", Date: date, State: "not_arrived"})
+		json.NewEncoder(w).Encode(attendanceStatus{CamperID: "camper-a", DisplayName: "Direct Camper", SessionID: "test-camp", Date: date, State: "not_arrived"})
 	})
 	date = today
 	interaction := attendanceStart("300", "staff", date)
@@ -736,5 +743,75 @@ func TestAttendanceCommandDefinitionAndDirectStaffArrival(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(reply.content, "Camper **Direct Camper**") {
+		t.Fatal("direct staff camper status omitted its authorized name")
+	}
 	attendanceButton(t, reply, "I confirm physical arrival")
+}
+
+func TestAttendanceNameLabelsAreSafeAndUnique(t *testing.T) {
+	choices := []attendanceChoice{
+		{id: "camper-b", name: "Same Name"},
+		{id: "camper-a", name: "Same Name"},
+		{id: "camper-c", name: "@everyone **format**\n<@123456789012345678>"},
+		{id: "camper-d", name: strings.Repeat("😀", 200)},
+		{id: "camper-e"},
+	}
+	labels := attendanceChoiceLabels(choices)
+	if labels["camper-a"] == labels["camper-b"] {
+		t.Fatal("duplicate names must have distinct labels")
+	}
+	if strings.Contains(labels["camper-c"], "@everyone") || strings.Contains(labels["camper-c"], "**") || strings.ContainsAny(labels["camper-c"], "\r\n") {
+		t.Fatalf("hostile name was not neutralized: %q", labels["camper-c"])
+	}
+	for id, label := range labels {
+		if utf16Length(label) > 100 || strings.Contains(label, id) {
+			t.Fatalf("invalid or ID-bearing label for %s: %q", id, label)
+		}
+	}
+	if !strings.Contains(labels["camper-e"], "Camper name unavailable") {
+		t.Fatalf("missing name did not produce an explicit fallback: %q", labels["camper-e"])
+	}
+	if labels["camper-d"] == "" || !strings.Contains(labels["camper-d"], "😀") {
+		t.Fatalf("Unicode name was not retained: %q", labels["camper-d"])
+	}
+}
+
+func TestAttendanceOlderBackendNameFallbackAndRefresh(t *testing.T) {
+	statusCalls := 0
+	var date string
+	a, date := attendanceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, attendancePrefix) {
+		case "/campers":
+			fmt.Fprint(w, `{"campers":[{"camper_id":"camper-a"}]}`)
+		case "/status":
+			statusCalls++
+			name := ""
+			if statusCalls == 2 {
+				name = "Updated Camper"
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"camper_id": "camper-a", "display_name": name, "session_id": "test-camp",
+				"date": date, "state": "not_arrived", "version": 0,
+			})
+		default:
+			t.Errorf("unexpected endpoint %s", r.URL.Path)
+		}
+	})
+	reply, err := a.open(context.Background(), attendanceStart("200", "parent", date), "200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	menu := attendanceSelect(t, reply)
+	if menu.Options[0].Label != "1. Camper name unavailable" || menu.Options[0].Value != "camper-a" {
+		t.Fatalf("old /campers response was not handled safely: %+v", menu.Options[0])
+	}
+	reply, err = attendanceClick(t, a, "200", menu.CustomID, "old-backend", "camper-a")
+	if err != nil || !strings.Contains(reply.content, "Camper **Camper name unavailable**") || strings.Contains(reply.content, "camper-a") {
+		t.Fatalf("%s %v", reply.content, err)
+	}
+	reply, err = attendanceClick(t, a, "200", attendanceButton(t, reply, "Refresh status"), "new-status")
+	if err != nil || !strings.Contains(reply.content, "Camper **Updated Camper**") || strings.Contains(reply.content, "camper-a") {
+		t.Fatalf("refresh did not use current display name: %s %v", reply.content, err)
+	}
 }
