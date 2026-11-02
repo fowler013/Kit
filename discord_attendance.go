@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -97,9 +98,32 @@ type attendanceReply struct {
 	components []discordgo.MessageComponent
 }
 
+type attendanceChoice struct {
+	id, name, state string
+}
+
 func (a *discordAttendance) button(v attendanceView, label string) (discordgo.MessageComponent, error) {
 	key, err := a.store(v)
 	return discordgo.Button{CustomID: key, Label: label, Style: discordgo.PrimaryButton}, err
+}
+
+func attendanceChoiceLabels(choices []attendanceChoice) map[string]string {
+	sort.Slice(choices, func(i, j int) bool { return choices[i].id < choices[j].id })
+	labels := make(map[string]string, len(choices))
+	for i, choice := range choices {
+		name := attendanceLabel(choice.name)
+		if name == "" {
+			name = "Camper name unavailable"
+		}
+		prefix := fmt.Sprintf("%d. ", i+1)
+		suffix := ""
+		if choice.state != "" {
+			suffix = " - " + choice.state
+		}
+		name = attendanceTruncate(name, 100-utf16Length(prefix)-utf16Length(suffix))
+		labels[choice.id] = prefix + name + suffix
+	}
+	return labels
 }
 
 // Page choices keep Discord's 25-option limit without truncating families or queues.
@@ -198,9 +222,11 @@ func (a *discordAttendance) choices(ctx context.Context, v attendanceView) (map[
 		if err != nil {
 			return nil, err
 		}
+		choices := make([]attendanceChoice, 0, len(entries))
 		for _, entry := range entries {
-			labels[entry.ID] = attendanceLabel(entry.Name)
+			choices = append(choices, attendanceChoice{id: entry.ID, name: entry.Name})
 		}
+		labels = attendanceChoiceLabels(choices)
 	} else if v.staff {
 		var pending struct {
 			Items []attendanceStatus `json:"items"`
@@ -209,38 +235,83 @@ func (a *discordAttendance) choices(ctx context.Context, v attendanceView) (map[
 		if err != nil {
 			return nil, err
 		}
+		choices := make([]attendanceChoice, 0, len(pending.Items))
 		for _, s := range pending.Items {
 			if !validAttendanceStatus(s, v.session, v.date, "") || (s.State != "arrival_requested" && s.State != "pickup_requested") {
 				return nil, attendanceError("attendance_unavailable")
 			}
-			labels[s.CamperID] = attendanceLabel(s.CamperID + " - " + s.State)
+			choices = append(choices, attendanceChoice{id: s.CamperID, name: s.DisplayName, state: s.State})
 		}
+		labels = attendanceChoiceLabels(choices)
 	} else {
 		var campers struct {
 			Campers []struct {
-				ID string `json:"camper_id"`
+				ID          string `json:"camper_id"`
+				DisplayName string `json:"display_name"`
 			} `json:"campers"`
 		}
 		err := a.client.call(ctx, v.actor, v.guild, false, "/campers", attendanceQuery(v.session, "", ""), nil, "", &campers)
 		if err != nil {
 			return nil, err
 		}
+		choices := make([]attendanceChoice, 0, len(campers.Campers))
 		for _, camper := range campers.Campers {
 			if !attendanceHandle.MatchString(camper.ID) {
 				return nil, attendanceError("attendance_unavailable")
 			}
-			labels[camper.ID] = attendanceLabel(camper.ID)
+			choices = append(choices, attendanceChoice{id: camper.ID, name: camper.DisplayName})
 		}
+		labels = attendanceChoiceLabels(choices)
 	}
 	return labels, nil
 }
 
 func attendanceLabel(text string) string {
-	r := []rune(text)
-	if len(r) > 100 {
-		r = r[:100]
+	var safe strings.Builder
+	for _, r := range text {
+		switch {
+		case unicode.IsControl(r):
+			safe.WriteByte(' ')
+		case unicode.Is(unicode.Cf, r) && r != '\u200d':
+			continue
+		case r == '@':
+			safe.WriteString("@\u200b")
+		case strings.ContainsRune("\\*_`~|<>#[]()", r):
+			safe.WriteByte('\\')
+			safe.WriteRune(r)
+		default:
+			safe.WriteRune(r)
+		}
 	}
-	return string(r)
+	return attendanceTruncate(strings.Join(strings.Fields(safe.String()), " "), 100)
+}
+
+func utf16Length(text string) int {
+	length := 0
+	for _, r := range text {
+		length++
+		if r > 0xffff {
+			length++
+		}
+	}
+	return length
+}
+
+func attendanceTruncate(text string, maxUnits int) string {
+	var truncated strings.Builder
+	units := 0
+	for _, r := range text {
+		runeUnits := 1
+		if r > 0xffff {
+			runeUnits = 2
+		}
+		if units+runeUnits > maxUnits {
+			break
+		}
+		truncated.WriteRune(r)
+		units += runeUnits
+	}
+	return truncated.String()
 }
 
 func (a *discordAttendance) show(ctx context.Context, v attendanceView) (attendanceReply, error) {
@@ -250,7 +321,7 @@ func (a *discordAttendance) show(ctx context.Context, v attendanceView) (attenda
 	}
 	v.version = s.Version
 	v.choices = nil
-	reply := attendanceReply{content: fmt.Sprintf("Camper `%s` | %s | %s\nStatus: **%s** (version %d).\nParents request only; staff must verify physical attendance. No photo ID is required.", s.CamperID, s.SessionID, s.Date, s.State, s.Version)}
+	reply := attendanceReply{content: fmt.Sprintf("Camper **%s** | %s | %s\nStatus: **%s** (version %d).\nParents request only; staff must verify physical attendance. No photo ID is required.", attendanceName(s.DisplayName), s.SessionID, s.Date, s.State, s.Version)}
 	var buttons []discordgo.MessageComponent
 	actions := []struct{ action, label string }{{"refresh", "Refresh status"}}
 	if a.client.currentDate(v.date) {
@@ -293,7 +364,7 @@ func (a *discordAttendance) roster(ctx context.Context, v attendanceView) ([]att
 	err := a.client.call(ctx, v.actor, v.guild, true, "/pickup-roster", attendanceQuery(v.session, "", v.camper), nil, "", &roster)
 	if err == nil {
 		for _, entry := range roster.Entries {
-			if !attendanceHandle.MatchString(entry.ID) || strings.TrimSpace(entry.Name) == "" {
+			if !attendanceHandle.MatchString(entry.ID) || attendanceLabel(entry.Name) == "" {
 				return nil, attendanceError("attendance_unavailable")
 			}
 		}
@@ -349,7 +420,7 @@ func (a *discordAttendance) component(ctx context.Context, i *discordgo.Interact
 		for _, entry := range entries {
 			if entry.ID == selected {
 				button, err := a.button(v, "I verified the roster and physical release")
-				name := strings.NewReplacer("*", "\\*", "_", "\\_", "`", "\\`", "~", "\\~", "\\", "\\\\").Replace(attendanceLabel(entry.Name))
+				name := attendanceName(entry.Name)
 				return attendanceReply{content: fmt.Sprintf("Selected authorized pickup: **%s**.\nManually match the person physically collecting the camper to the current authorized roster. Resolve uncertainty privately with the verified parent before release. A request, role, or button alone is not permission. No photo ID is required.\nConfirm only after that manual check and physical release.", name),
 					components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{button}}}}, err
 			}
@@ -418,13 +489,21 @@ func (a *discordAttendance) component(ctx context.Context, i *discordgo.Interact
 		if !validAttendanceStatus(result, v.session, v.date, v.camper) || result.State != expected[action] {
 			return attendanceReply{}, attendanceError("unknown_outcome")
 		}
+		name := attendanceName(result.DisplayName)
 		wording := "Request recorded; this is NOT confirmation of physical arrival or release."
 		if v.staff {
 			wording = "Staff physical attendance confirmation recorded."
 		}
-		return attendanceReply{content: wording + "\nStatus: **" + result.State + "**. Reopen /attendance for fresh status before any further action."}, nil
+		return attendanceReply{content: "Camper **" + name + "**. " + wording + "\nStatus: **" + result.State + "**. Reopen /attendance for fresh status before any further action."}, nil
 	}
 	return attendanceReply{}, attendanceError("invalid_request")
+}
+
+func attendanceName(name string) string {
+	if safe := attendanceLabel(name); safe != "" {
+		return safe
+	}
+	return "Camper name unavailable"
 }
 
 func (d *DiscordBot) onAttendanceInteraction(s *discordgo.Session, event *discordgo.InteractionCreate) {
