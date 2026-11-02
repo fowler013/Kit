@@ -178,6 +178,8 @@ func (c *attendanceClient) call(ctx context.Context, actor, guild string, staff 
 	req.Header.Set("X-Discord-Guild-ID", guild)
 	req.Header.Set("X-Discord-User-ID", actor)
 	if body != nil {
+		// Idempotency-Key makes POST replayable to net/http; retain unknown outcomes instead.
+		req.GetBody = nil
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", key)
 	}

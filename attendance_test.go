@@ -541,6 +541,43 @@ func TestAttendanceNoRedirectCredentialDisclosure(t *testing.T) {
 	if err == nil || targetCalls.Load() != 0 {
 		t.Fatal("followed credential-bearing redirect")
 	}
+
+}
+
+func TestAttendanceWriteDoesNotReplayOnReusedConnection(t *testing.T) {
+	var attempts atomic.Int32
+	a, date := attendanceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"campers":[]}`)
+			return
+		}
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Error(err)
+		}
+		if attempts.Add(1) == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			conn.Close()
+			return
+		}
+		fmt.Fprint(w, `{}`)
+	})
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	a.client.http.Transport = transport
+	var result struct{}
+	// Prime the connection: net/http retries replayable requests only on reused connections.
+	if err := a.client.call(context.Background(), "200", "100", false, "/campers", nil, nil, "", &result); err != nil {
+		t.Fatal(err)
+	}
+	body := attendanceWrite{CamperID: "camper-a", SessionID: "test-camp", Date: date, Action: "arrival"}
+	err := a.client.call(context.Background(), "200", "100", false, "/requests", nil, &body, "905", &result)
+	if attempts.Load() != 1 || err != attendanceError("unknown_outcome") {
+		t.Fatalf("POST attempts=%d, error=%v; want one attempt and unknown outcome", attempts.Load(), err)
+	}
 }
 
 func TestAttendanceControlSingleUseConcurrent(t *testing.T) {
