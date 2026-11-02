@@ -20,6 +20,7 @@ type DiscordBot struct {
 	startTime    string
 	botID        string
 	mu           sync.RWMutex
+	attendance   *discordAttendance
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -45,10 +46,18 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		aiService:    aiService,
 		startTime:    startTime,
 	}
+	attendance, err := attendanceFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("invalid private attendance configuration")
+	}
+	if attendance != nil {
+		bot.attendance = &discordAttendance{client: attendance}
+	}
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)
 	session.AddHandler(bot.onMessageCreate)
+	session.AddHandler(bot.onAttendanceInteraction)
 
 	return bot, nil
 }

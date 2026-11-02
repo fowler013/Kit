@@ -55,6 +55,17 @@ other command prefixes are ignored.
 
 ## Discord mental model for contributors
 
+### Private attendance (not enabled yet)
+
+The separately gated `/attendance parent` and `/attendance staff` slash-command
+flows use ephemeral replies only, never the AI router or public text replies.
+Parents request arrival/pickup; only authorized staff confirm physical arrival
+or release after manual authorized-roster verification. No photo ID is required.
+See [private attendance usage and rollout gates](DISCORD_ATTENDANCE.md).
+These commands must not require opening public posting in read-only parent
+channels. Backend deployment, approved family linkage, separate-account checks
+and explicit command registration/activation remain operator prerequisites.
+
 When adding functionality, think in platform terms:
 
 - `GuildID` = server ID

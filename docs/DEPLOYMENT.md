@@ -32,6 +32,14 @@ Kit cannot see who may read a listed channel, so only list channels that are
 actually private. DMs require a user ID allowlist because a DM has no server
 role context. Prefer explicit user IDs to role names.
 
+**Private attendance is separate and disabled by default.** Do not reuse the
+legacy registration credentials/roles or public `!camp` response paths for it.
+The `/attendance` interaction handler never registers commands or changes
+Discord permissions at startup. See [attendance configuration and rollout
+gates](DISCORD_ATTENDANCE.md) before any separately authorized activation.
+Preserve read-only parent-channel controls; slash commands do not require
+allowing parents to post public messages.
+
 ## 2. Configure and run locally
 
 Use Go 1.25 (at least the `go.mod` toolchain version is required).

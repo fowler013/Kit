@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -49,8 +50,11 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) > 0 {
+		if len(args) == 1 && args[0] == "--print-attendance-command" {
+			return json.NewEncoder(os.Stdout).Encode(attendanceCommand())
+		}
 		if len(args) != 1 || args[0] != "--health-check" {
-			return fmt.Errorf("usage: kit-ai-bot [--health-check]")
+			return fmt.Errorf("usage: kit-ai-bot [--health-check | --print-attendance-command]")
 		}
 		port, err := healthPort(os.Getenv)
 		if err != nil {
