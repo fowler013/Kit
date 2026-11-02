@@ -51,9 +51,14 @@ func validateRuntimeConfig(getenv func(string) string) error {
 	if strings.TrimSpace(getenv("CAMP_ALLOWED_DISCORD_IDS")) == "" && strings.TrimSpace(getenv("CAMP_ALLOWED_ROLE")) == "" {
 		return fmt.Errorf("camp integration requires CAMP_ALLOWED_DISCORD_IDS or CAMP_ALLOWED_ROLE")
 	}
-	for _, id := range strings.Split(getenv("CAMP_ALLOWED_DISCORD_IDS"), ",") {
-		if id = strings.TrimSpace(id); id != "" && !isAllDigits(id) {
-			return fmt.Errorf("CAMP_ALLOWED_DISCORD_IDS must contain comma-separated numeric Discord user IDs")
+	for _, list := range []struct{ key, kind string }{
+		{"CAMP_ALLOWED_DISCORD_IDS", "Discord user"},
+		{"CAMP_ALLOWED_CHANNEL_IDS", "Discord channel"},
+	} {
+		for _, id := range strings.Split(getenv(list.key), ",") {
+			if id = strings.TrimSpace(id); id != "" && !isAllDigits(id) {
+				return fmt.Errorf("%s must contain comma-separated numeric %s IDs", list.key, list.kind)
+			}
 		}
 	}
 	for _, setting := range []struct {

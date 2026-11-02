@@ -109,7 +109,7 @@ func TestRuntimeConfiguration(t *testing.T) {
 	camp := map[string]string{
 		"DISCORD_BOT_TOKEN": "test", "CAMP_API_BASE_URL": "https://camp.example",
 		"CAMP_ADMIN_USERNAME": "staff", "CAMP_ADMIN_PASSWORD": "test",
-		"CAMP_ALLOWED_DISCORD_IDS": "123, 456",
+		"CAMP_ALLOWED_DISCORD_IDS": "123, 456", "CAMP_ALLOWED_CHANNEL_IDS": "555, 777",
 	}
 	if err := validateRuntimeConfig(func(key string) string { return camp[key] }); err != nil {
 		t.Fatal(err)
@@ -117,6 +117,7 @@ func TestRuntimeConfiguration(t *testing.T) {
 	for key, value := range map[string]string{
 		"CAMP_API_BASE_URL":        "https://user:secret@camp.example",
 		"CAMP_ALLOWED_DISCORD_IDS": "not-an-id",
+		"CAMP_ALLOWED_CHANNEL_IDS": "#moderator-only",
 		"CAMP_CAPACITY":            "-1",
 		"CAMP_POLL_MINUTES":        "0",
 	} {

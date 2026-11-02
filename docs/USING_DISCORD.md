@@ -49,8 +49,9 @@ The application strips the mention and sends a generated response in the same ch
 
 These are handled in the Discord adapter before AI generation.
 They work without a mention. `!myid`, `!links`, and authorized `!camp` commands
-are also available. Unrelated unmentioned conversation and other command
-prefixes are ignored.
+are also available; `!camp` data is only shown in DMs and the staff channels
+listed in `CAMP_ALLOWED_CHANNEL_IDS`. Unrelated unmentioned conversation and
+other command prefixes are ignored.
 
 ## Discord mental model for contributors
 

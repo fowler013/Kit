@@ -134,6 +134,25 @@ func TestCampAccessAndCancellation(t *testing.T) {
 	}
 }
 
+func TestCampAllowedChannels(t *testing.T) {
+	camp := NewCampClient("https://camp.example", "staff", "test", "123", "", 0)
+	if camp.ChannelAllowed("555") {
+		t.Fatal("channels must be denied until configured")
+	}
+	if n := camp.SetAllowedChannels(" 555 , ,777,"); n != 2 {
+		t.Fatalf("configured %d channels, want 2", n)
+	}
+	for channel, want := range map[string]bool{"555": true, "777": true, "999": false, "": false} {
+		if got := camp.ChannelAllowed(channel); got != want {
+			t.Errorf("ChannelAllowed(%q)=%v, want %v", channel, got, want)
+		}
+	}
+	var missing *CampClient
+	if missing.SetAllowedChannels("555") != 0 || missing.ChannelAllowed("555") {
+		t.Fatal("nil client must deny every channel")
+	}
+}
+
 func TestCampRejectsInvalidBaseURL(t *testing.T) {
 	for _, baseURL := range []string{"", "camp.example.com", "file:///etc/passwd", "ftp://camp.example.com", "https:///missing-host"} {
 		if camp := NewCampClient(baseURL, "staff", "test", "123", "", 0); camp != nil {

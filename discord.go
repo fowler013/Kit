@@ -124,7 +124,8 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 
 	// Process the message
 	hasCampRole := d.memberHasCampRole(s, m)
-	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole)
+	campChannelOK := func() bool { return d.campChannelAllowed(s, m) }
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole, campChannelOK)
 	if strings.TrimSpace(response) == "" {
 		return
 	}
@@ -226,8 +227,27 @@ func (d *DiscordBot) memberHasCampRole(s *discordgo.Session, m *discordgo.Messag
 	return false
 }
 
-// generateDiscordResponse generates a response for Discord messages
-func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool) string {
+// campChannelAllowed reports whether registration data may be shown where the
+// message was sent: always in DMs, otherwise only in a staff channel listed in
+// CAMP_ALLOWED_CHANNEL_IDS or a thread inside one. Lookup failures deny access.
+func (d *DiscordBot) campChannelAllowed(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	if m.GuildID == "" || globalCampClient.ChannelAllowed(m.ChannelID) {
+		return true
+	}
+	channel, err := s.State.Channel(m.ChannelID)
+	if err != nil {
+		if channel, err = s.Channel(m.ChannelID); err != nil {
+			log.Printf("Camp channel lookup failed; access denied: %v", err)
+			return false
+		}
+	}
+	return channel.IsThread() && globalCampClient.ChannelAllowed(channel.ParentID)
+}
+
+// generateDiscordResponse generates a response for Discord messages.
+// campChannelOK is only called for camp queries from authorized users; a nil
+// value means the channel is not a staff channel.
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool, campChannelOK func() bool) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 
@@ -248,6 +268,10 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	if isCampQuery(cleanMessage) {
 		if globalCampClient == nil {
 			return "⚠️ Camp integration is not configured. Ask the operator to configure and verify the Camp Power-Up connection."
+		}
+		// Even authorized users only get registration data in staff channels or DMs.
+		if globalCampClient.isAuthorized(userID, hasCampRole) && (campChannelOK == nil || !campChannelOK()) {
+			return campPrivacyNotice
 		}
 		if response := globalCampClient.HandleQuery(cleanMessage, userID, hasCampRole); response != "" {
 			return response
@@ -316,7 +340,7 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 			"• `!version` - Show version info\n" +
 			"• `!myid` - Show your Discord user ID\n" +
 			"• `!links` - Camp Power-Up website links\n" +
-			"• `!camp` - Camp registration commands (authorized users)\n\n" +
+			"• `!camp` - Camp registration commands (authorized staff, in staff channels or DMs)\n\n" +
 			"**How to use Kit on Discord:**\n" +
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in servers to get responses\n" +
