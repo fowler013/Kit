@@ -525,7 +525,7 @@ func TestAttendanceOnlyEphemeralInteractionResponses(t *testing.T) {
 			if scenario == "missing-member" {
 				interaction.Member = nil
 			}
-			bot.onAttendanceInteraction(session, &discordgo.InteractionCreate{Interaction: interaction})
+			bot.onDiscordInteraction(session, &discordgo.InteractionCreate{Interaction: interaction})
 			want := 2
 			if scenario == "ack-failure" {
 				want = 1

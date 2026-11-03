@@ -89,6 +89,7 @@ GEMINI_MODEL=
 - WebSocket connection for real-time responses
 - Mentions and direct messages
 - Built-in `!` commands in server channels without a mention
+- Guild-scoped slash commands, registered automatically when a guild ID is configured
 - Server and DM support
 - Rich embed formatting
 
@@ -108,6 +109,56 @@ GEMINI_MODEL=
 !status
 !help
 ```
+
+### Discord slash commands
+
+`/status` (`/health`), `/help` (`/commands`), `/version`, `/myid`, and `/links`
+mirror the text commands. `/help` filters staff-only workflows by the caller's
+access. `/myid` and all informational commands respond privately.
+
+Use `/kit ask prompt:<text> visibility:<private|public>` for AI chat through the
+existing provider chain. Visibility defaults to **private** (ephemeral); choose
+`public` explicitly to share an answer. Responses are deferred before provider
+calls, and long answers are split into Discord-safe chunks with the same
+visibility and no unsolicited mentions. Private slash chats use separate
+conversation history from public and legacy chats.
+
+`/camp query:<help|stats|roster|unpaid|capacity>` is always ephemeral. The caller
+must be in the JSON `DISCORD_ATTENDANCE_STAFF_IDS` allowlist **and** have existing
+`CAMP_ALLOWED_DISCORD_IDS` or `CAMP_ALLOWED_ROLE` access. Existing
+`CAMP_ALLOWED_CHANNEL_IDS` restrictions (including staff-channel threads) still
+apply; ephemeral replies do not bypass them. Camp questions through `/kit ask`
+use these same checks and are forced private even if `public` was selected.
+Registration data never goes to an AI provider. `/attendance` retains its
+private parent/staff workflows and remains disabled until its separately
+approved backend rollout; see [private attendance](docs/DISCORD_ATTENDANCE.md).
+Existing `!` commands, `!kit <question>`, @mentions and DMs remain supported.
+
+Configure these variables locally or in Railway:
+
+| Variable | Behavior |
+| --- | --- |
+| `DISCORD_GUILD_ID` | Target server ID; falls back to `DISCORD_ATTENDANCE_GUILD_ID` if empty |
+| `DISCORD_APPLICATION_ID` | Optional application ID; defaults to the logged-in bot's ID |
+| `DISCORD_REGISTER_COMMANDS` | Empty defaults to on when a guild ID is set; `false` skips registration without disabling handlers |
+| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; used by `/camp` even with attendance disabled |
+
+For the camp server, the guild is `1537008248048328726` and the application is
+`1537124728131817603`. Startup performs one **guild-scoped bulk overwrite** of
+the entire suite, including `/attendance`, and never registers global commands.
+This is idempotent, but removes any other application commands in that guild;
+set `DISCORD_REGISTER_COMMANDS=false` if commands are managed externally.
+Registration failures are logged without stopping the bot; restart after fixing
+configuration to retry. No command registration or deployment is performed by tests.
+
+Install the bot with the `bot` and `applications.commands` scopes. Definitions
+disable DMs (guild commands are not offered in DMs) and require **Use Application
+Commands**, not Administrator or Send Messages. User-ID staff allowlists cannot
+be represented by Discord's default member permission bitset, so runtime
+authorization remains mandatory. Keep private staff channels and attendance's
+read-only parent-channel permissions unchanged. Legacy text/DM camp behavior
+retains its existing authorization rules.
+
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-level-token-here

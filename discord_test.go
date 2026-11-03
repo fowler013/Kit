@@ -34,6 +34,8 @@ func TestDiscordGuildCommandRouting(t *testing.T) {
 		{" !HeLp ", false, false, "Kit Discord Commands"},
 		{"!camp roster", false, false, "not configured"},
 		{"!links", false, false, "No links configured"},
+		{"!kit hello", false, false, "Hello there"},
+		{"!KiT !help", false, false, "Kit Discord Commands"},
 		{"<@99> !help", false, false, "Kit Discord Commands"},
 		{"<@!99> !help", false, false, "Kit Discord Commands"},
 		{"hello", true, false, "Hello there"},

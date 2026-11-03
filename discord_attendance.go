@@ -29,7 +29,7 @@ type discordAttendance struct {
 	views  map[string]attendanceView
 }
 
-// This definition is not registered at startup. Operators register it only after rollout approval.
+// The suite registers this definition; backend access still requires explicit enablement.
 func attendanceCommand() *discordgo.ApplicationCommand {
 	permission := int64(discordgo.PermissionUseSlashCommands)
 	dm := false
