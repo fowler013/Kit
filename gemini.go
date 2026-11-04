@@ -67,9 +67,9 @@ func (g *GeminiClient) GenerateResponse(message string) (string, error) {
 	}
 
 	// Extract text from response
-	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
 		if textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
-			return string(textPart), nil
+			return finalizeAIResponse(string(textPart), resp.Candidates[0].FinishReason == genai.FinishReasonMaxTokens), nil
 		}
 	}
 
