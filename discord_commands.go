@@ -81,6 +81,7 @@ func discordCommands() []*discordgo.ApplicationCommand {
 				{Type: discordgo.ApplicationCommandOptionString, Name: "query", Description: "help, stats, roster, unpaid, or capacity"},
 			}},
 		attendanceCommand(),
+		ticketCommand(),
 	}
 	for _, command := range commands {
 		command.Type = discordgo.ChatApplicationCommand
@@ -244,6 +245,7 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 	}
 	if d.slashStaff(i) {
 		lines = append(lines,
+			"`/ticket new type:<request|feedback|bug|idea>` - Staff request or feedback form (no personal information)",
 			"`/kit status` - Private operational health",
 			"`/kit remind create|list|cancel` - One-off reminders in approved staff channels (lost on restart)")
 	}
@@ -314,6 +316,10 @@ func (d *DiscordBot) onDiscordInteraction(s *discordgo.Session, event *discordgo
 		return
 	}
 	i := event.Interaction
+	if isTicketInteraction(i) {
+		d.onTicketInteraction(s, i)
+		return
+	}
 	if i.Type != discordgo.InteractionApplicationCommand {
 		d.onAttendanceInteraction(s, event)
 		return

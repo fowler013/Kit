@@ -128,6 +128,7 @@ available to the caller.
 | `/kit remind create` | `/kit remind create in:30m message:"Prepare the equipment"` | Schedule a one-off reminder in the invoking private staff channel. |
 | `/kit remind list` | `/kit remind list` | Privately list your active reminder IDs and UTC times in this channel. |
 | `/kit remind cancel` | `/kit remind cancel id:1` | Privately cancel your reminder in this channel. |
+| `/ticket new` | `/ticket new type:feedback` | Staff-only request, feedback, bug, or idea form; receipt is private. |
 | `/camp` | `/camp query:stats` | Run an authorized, private Camp Power-Up query. |
 | `/attendance` | `/attendance parent session:<configured-slug> date:<YYYY-MM-DD>` | Private parent/staff workflow; disabled until separately approved and enabled. |
 
@@ -146,6 +147,50 @@ and are forced private even if `public` was selected. Supported `/camp query`
 values are `help`, `stats`, `roster`, `unpaid`, and `capacity`.
 
 ### Staff access and privacy
+
+#### Staff tickets
+
+`/ticket new type:<request|feedback|bug|idea>` opens a form with a required title
+(100 characters) and details (1,500 characters). **No medical, family, or camper
+personal info. Not for emergencies or safety reports.** Use the camp's established
+safety/emergency reporting process instead. Phase 1 is approved staff only:
+`DISCORD_ATTENDANCE_STAFF_IDS` and the configured guild are checked on command,
+submission, and every button. Parents and campers cannot submit or operate tickets.
+
+`KIT_TICKETS_CHANNEL_ID` is optional; unset disables intake with a private reply.
+When enabled, that exact destination must pass the same live, fail-closed
+staff-only permission check described below for reminders: explicit `@everyone`
+View Channel denial and no unrecognized member/role visibility grants.
+The ticket variable explicitly approves the destination; it need not also be in
+`CAMP_ALLOWED_CHANNEL_IDS`. Only guild text channels are supported, not forums or
+private per-ticket channels. Server administrators retain inherent visibility.
+Kit needs View Channel, Send Messages, Embed Links, Read Message History,
+Create Public Threads, and Manage Threads in that staff-only destination.
+**Administrator bypasses channel overwrites, including for apps/bots.** The
+privacy check does not exclude administrators or administrator-enabled apps
+(such as Appy, MEE6, or Sapphire). An operator must separately review the actual
+staff/admin/app audience and permissions before enabling intake; do not treat
+passing the overwrite check as proof that no third-party app can read tickets.
+
+Each ticket is a team-visible message with a random ID, type, submitter mention
+(no ping), UTC creation time, and Open status, plus a discussion thread. Staff can
+**Claim**, **Resolve** (archives the thread), or **Reopen** (unarchives it).
+Kit edits the original message and sends only an ephemeral receipt with its jump
+link; it never DMs, forwards tickets to AI, or posts to another destination.
+All posts/edits suppress mentions; `@everyone` and `@here` are neutralized.
+Logs contain ticket IDs and outcomes, not titles or details.
+
+**Message-backed status and controls survive restarts; the per-user limit of five
+submission attempts per ten minutes resets.** Forms expire after ten minutes,
+are replaced when the same staff member opens another form, and must be reopened
+after a restart. Each form can attempt delivery only once. Uncertain API outcomes
+are reported privately without automatic retries; check the channel before
+resubmitting. A thread failure leaves the ticket intact with an explicit warning.
+Thread archival failures also report partial success and need operator attention.
+Stale controls are rejected using message-backed revisions and fresh message reads.
+Run **one active Kit instance**: Discord message edits have no cross-instance
+compare-and-swap protection. Deleting a ticket message deletes its stored state.
+Changing the destination disables controls on tickets left in the old channel.
 
 `/kit status` and `/kit remind` require an approved ID in
 `DISCORD_ATTENDANCE_STAFF_IDS` and the configured guild; all replies, denials,
@@ -225,11 +270,12 @@ Configure these variables locally or in Railway:
 | `DISCORD_GUILD_ID` | Target server ID; falls back to `DISCORD_ATTENDANCE_GUILD_ID` if empty |
 | `DISCORD_APPLICATION_ID` | Optional application ID; defaults to the logged-in bot's ID |
 | `DISCORD_REGISTER_COMMANDS` | Empty defaults to on when a guild ID is set; `false` skips registration without disabling handlers |
-| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; gates `/kit status`, `/kit remind`, and `/camp` even with attendance disabled |
+| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; gates `/kit status`, `/kit remind`, `/ticket`, and `/camp` even with attendance disabled |
 | `CAMP_ALLOWED_DISCORD_IDS` | Comma-separated Discord IDs authorized for Camp Power-Up queries |
 | `CAMP_ALLOWED_ROLE` | Optional Discord role name (case-insensitive match) that grants Camp Power-Up access |
 | `CAMP_ALLOWED_CHANNEL_IDS` | Comma-separated allowed staff channel IDs; empty restricts server queries to DMs |
 | `KIT_OPS_CHANNEL_ID` | Optional private staff operations channel ID; enables one startup health summary and can be a reminder destination; unset disables startup posts |
+| `KIT_TICKETS_CHANNEL_ID` | Optional verified staff-only text destination for staff tickets; unset disables intake; message state persists across restarts, rate limits reset |
 
 For the camp server, the guild is `1537008248048328726` and the application is
 `1537124728131817603`. Startup performs one **guild-scoped bulk overwrite** of
