@@ -124,6 +124,8 @@ type AIService struct {
 	providers []Provider
 	store     SessionStore
 	fallback  func(string) string
+	healthMu  sync.RWMutex
+	health    map[int]string
 }
 
 func NewAIService(store SessionStore, fallback func(string) string, providers ...Provider) *AIService {
@@ -134,6 +136,7 @@ func NewAIService(store SessionStore, fallback func(string) string, providers ..
 		providers: providers,
 		store:     store,
 		fallback:  fallback,
+		health:    make(map[int]string),
 	}
 }
 
@@ -151,8 +154,18 @@ func (a *AIService) Respond(ctx context.Context, req ChatRequest) string {
 	}
 
 	session := a.store.GetOrCreate(req.Platform, req.UserID, req.ChannelID)
-	for _, provider := range a.providers {
+	for index, provider := range a.providers {
 		response, err := provider.Generate(ctx, message, session)
+		state := "unavailable (last request)"
+		if err == nil && strings.TrimSpace(response) != "" {
+			state = "healthy (last request)"
+		}
+		a.healthMu.Lock()
+		if a.health == nil {
+			a.health = make(map[int]string)
+		}
+		a.health[index] = state
+		a.healthMu.Unlock()
 		if err == nil && strings.TrimSpace(response) != "" {
 			a.store.Append(session, "assistant", response)
 			return response

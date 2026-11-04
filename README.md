@@ -124,6 +124,10 @@ available to the caller.
 | `/myid` | `/myid` | Show your Discord user ID privately. |
 | `/links` | `/links` | Show Camp Power-Up website links. |
 | `/kit ask` | `/kit ask prompt:"Suggest a general camp packing list" visibility:private` | Ask Kit through the configured AI providers. |
+| `/kit status` | `/kit status` | Staff-only, private operational health; no camper data or secrets. |
+| `/kit remind create` | `/kit remind create in:30m message:"Prepare the equipment"` | Schedule a one-off reminder in the invoking private staff channel. |
+| `/kit remind list` | `/kit remind list` | Privately list your active reminder IDs and UTC times in this channel. |
+| `/kit remind cancel` | `/kit remind cancel id:1` | Privately cancel your reminder in this channel. |
 | `/camp` | `/camp query:stats` | Run an authorized, private Camp Power-Up query. |
 | `/attendance` | `/attendance parent session:<configured-slug> date:<YYYY-MM-DD>` | Private parent/staff workflow; disabled until separately approved and enabled. |
 
@@ -142,6 +146,44 @@ and are forced private even if `public` was selected. Supported `/camp query`
 values are `help`, `stats`, `roster`, `unpaid`, and `capacity`.
 
 ### Staff access and privacy
+
+`/kit status` and `/kit remind` require an approved ID in
+`DISCORD_ATTENDANCE_STAFF_IDS` and the configured guild; all replies, denials,
+and confirmations are ephemeral. These operational commands do not grant
+Camp Power-Up data access. `/kit status` reports process uptime, commit (Railway
+`RAILWAY_GIT_COMMIT_SHA`, build `-ldflags "-X main.buildCommit=<git SHA>"`, or Go
+VCS metadata), configured AI providers with last-request health, attendance
+enablement, and the startup slash-registration result. AI health is **unknown
+until used**, not a paid test request. CampPowerUp is probed without credentials
+at `/healthz` with a two-second timeout; HTTP 404 means reachable but no health
+endpoint. No registration endpoints or response bodies are included.
+
+Reminders accept Go durations such as `30m`, `2h`, or `1h30m`, from one second
+through `168h` (seven days; use `168h`, not `7d`). Text is limited to 1,000
+characters, with at most five active reminders per user across channels.
+**Reminders are in memory and lost on restart or deployment.** They never DM,
+never change channels, and suppress all mentions, including `@everyone`, roles,
+and user pings. Do not put camper, family, or pickup data in reminder text:
+delivery is a channel message, not an ephemeral reply.
+
+The destination must be explicitly listed in `CAMP_ALLOWED_CHANNEL_IDS` or be
+`KIT_OPS_CHANNEL_ID`, and must pass a live permissions check both at creation
+and delivery. Only guild text channels are accepted (not threads). The channel
+must explicitly deny **View Channel** to `@everyone`; any overwrite allowing
+visibility must be for an allowlisted staff member, Kit itself, or the exact
+staff role configured by `CAMP_ALLOWED_ROLE` (case-insensitive name match).
+Unrecognized role/member grants, inaccessible permissions, and public channels
+fail closed. Server administrators retain Discord's inherent visibility.
+If permissions become unsafe or delivery fails, the reminder is dropped with
+a generic operator log rather than retried or redirected. Shutdown cancels
+pending timers and waits for bounded in-flight delivery.
+
+Optional `KIT_OPS_CHANNEL_ID` enables one concise, mention-suppressed startup
+health line after Discord Ready and command registration. Unset means **no
+startup post**. The destination must pass the same fresh staff-only permissions
+check as reminders. Reconnects do not repeat it; invalid IDs, unknown/public
+audiences, or send failures are logged without stopping the bot. Set this only to a private staff operations
+channel after separately approving the production variable change.
 
 Discord's default slash-command permission is **Use Application Commands**;
 Administrator is not required for ordinary command use. This platform
@@ -183,10 +225,11 @@ Configure these variables locally or in Railway:
 | `DISCORD_GUILD_ID` | Target server ID; falls back to `DISCORD_ATTENDANCE_GUILD_ID` if empty |
 | `DISCORD_APPLICATION_ID` | Optional application ID; defaults to the logged-in bot's ID |
 | `DISCORD_REGISTER_COMMANDS` | Empty defaults to on when a guild ID is set; `false` skips registration without disabling handlers |
-| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; required by `/camp` even with attendance disabled |
+| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; gates `/kit status`, `/kit remind`, and `/camp` even with attendance disabled |
 | `CAMP_ALLOWED_DISCORD_IDS` | Comma-separated Discord IDs authorized for Camp Power-Up queries |
 | `CAMP_ALLOWED_ROLE` | Optional Discord role name (case-insensitive match) that grants Camp Power-Up access |
 | `CAMP_ALLOWED_CHANNEL_IDS` | Comma-separated allowed staff channel IDs; empty restricts server queries to DMs |
+| `KIT_OPS_CHANNEL_ID` | Optional private staff operations channel ID; enables one startup health summary and can be a reminder destination; unset disables startup posts |
 
 For the camp server, the guild is `1537008248048328726` and the application is
 `1537124728131817603`. Startup performs one **guild-scoped bulk overwrite** of

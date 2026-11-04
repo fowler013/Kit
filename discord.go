@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
@@ -14,16 +15,22 @@ import (
 
 // DiscordBot holds the Discord bot configuration
 type DiscordBot struct {
-	session      *discordgo.Session
-	geminiClient *GeminiClient
-	claudeClient *ClaudeClient
-	aiService    *AIService
-	startTime    string
-	botID        string
-	mu           sync.RWMutex
-	attendance   *discordAttendance
-	commands     discordCommandConfig
-	registerOnce sync.Once
+	session       *discordgo.Session
+	geminiClient  *GeminiClient
+	claudeClient  *ClaudeClient
+	aiService     *AIService
+	startTime     string
+	botID         string
+	mu            sync.RWMutex
+	attendance    *discordAttendance
+	commands      discordCommandConfig
+	registerOnce  sync.Once
+	startedAt     time.Time
+	registration  string
+	opsChannel    string
+	staffChannels map[string]bool
+	staffRole     string
+	reminders     *reminderStore
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -43,12 +50,17 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		discordgo.IntentsMessageContent
 
 	bot := &DiscordBot{
-		session:      session,
-		geminiClient: geminiClient,
-		claudeClient: claudeClient,
-		aiService:    aiService,
-		startTime:    startTime,
-		commands:     discordCommandsFromEnv(),
+		session:       session,
+		geminiClient:  geminiClient,
+		claudeClient:  claudeClient,
+		aiService:     aiService,
+		startTime:     startTime,
+		commands:      discordCommandsFromEnv(),
+		startedAt:     time.Now(),
+		opsChannel:    strings.TrimSpace(os.Getenv("KIT_OPS_CHANNEL_ID")),
+		staffChannels: parseIDSet(os.Getenv("CAMP_ALLOWED_CHANNEL_IDS")),
+		staffRole:     strings.TrimSpace(os.Getenv("CAMP_ALLOWED_ROLE")),
+		reminders:     newReminderStore(),
 	}
 	attendance, err := attendanceFromEnv()
 	if err != nil {
@@ -97,6 +109,9 @@ func (d *DiscordBot) userID() string {
 // Stop stops the Discord bot
 func (d *DiscordBot) Stop() error {
 	log.Println("🔵 Stopping Discord bot...")
+	if d.reminders != nil {
+		d.reminders.stop()
+	}
 	return d.session.Close()
 }
 
@@ -109,7 +124,10 @@ func (d *DiscordBot) onReady(s *discordgo.Session, event *discordgo.Ready) {
 	d.mu.Lock()
 	d.botID = event.User.ID
 	d.mu.Unlock()
-	d.registerOnce.Do(func() { d.registerDiscordCommands(s) })
+	d.registerOnce.Do(func() {
+		d.registerDiscordCommands(s)
+		d.postStartupHealth(s)
+	})
 
 	// Set bot status
 	err := s.UpdateGameStatus(0, "🤖 Kit AI Assistant")

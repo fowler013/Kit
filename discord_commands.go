@@ -73,6 +73,8 @@ func discordCommands() []*discordgo.ApplicationCommand {
 							{Name: "private", Value: "private"}, {Name: "public", Value: "public"},
 						}},
 				}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "status", Description: "Private operational health for approved staff"},
+			reminderCommand(),
 		}},
 		{Name: "camp", Description: "Private registration queries for authorized staff in approved channels",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -91,6 +93,7 @@ func discordCommands() []*discordgo.ApplicationCommand {
 func (d *DiscordBot) registerDiscordCommands(s *discordgo.Session) {
 	config := d.commands
 	if !config.register {
+		d.setRegistration("disabled")
 		return
 	}
 	application := config.application
@@ -99,19 +102,24 @@ func (d *DiscordBot) registerDiscordCommands(s *discordgo.Session) {
 	}
 	if !attendanceID.MatchString(application) || !attendanceID.MatchString(config.guild) {
 		log.Println("Discord command registration skipped: valid application and guild IDs are required")
+		d.setRegistration("skipped (invalid application or guild)")
 		return
 	}
 	// Bulk overwrite is guild-scoped and replaces the same definitions on every startup.
 	if _, err := s.ApplicationCommandBulkOverwrite(application, config.guild, discordCommands()); err != nil {
 		log.Println("Discord guild command registration failed; bot remains online (check application scope and permissions)")
+		d.setRegistration("failed")
 		return
 	}
 	log.Println("Discord guild commands registered successfully")
+	d.setRegistration("registered")
 }
 
 type discordSlashRequest struct {
-	name, prompt string
-	flags        discordgo.MessageFlags
+	name, prompt                                string
+	flags                                       discordgo.MessageFlags
+	reminderAction, reminderID, reminderMessage string
+	reminderDelay                               time.Duration
 }
 
 func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discordSlashRequest, error) {
@@ -136,6 +144,20 @@ func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discor
 			request.prompt = strings.TrimSpace(value)
 		}
 	case "kit":
+		if len(data.Options) == 1 && data.Options[0] != nil {
+			switch data.Options[0].Name {
+			case "status":
+				if data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand || len(data.Options[0].Options) != 0 {
+					return request, fmt.Errorf("invalid status options")
+				}
+				request.name = "kit-status"
+				return request, nil
+			case "remind":
+				request.name = "kit-remind"
+				err := parseReminderOptions(data.Options[0], &request)
+				return request, err
+			}
+		}
 		if len(data.Options) != 1 || data.Options[0] == nil ||
 			data.Options[0].Name != "ask" || data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand {
 			return request, fmt.Errorf("expected ask subcommand")
@@ -220,6 +242,11 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 	if d.slashCampAccess(s, i) {
 		lines = append(lines, "`/camp query:<help|stats|roster|unpaid|capacity>` - Private staff registration queries")
 	}
+	if d.slashStaff(i) {
+		lines = append(lines,
+			"`/kit status` - Private operational health",
+			"`/kit remind create|list|cancel` - One-off reminders in approved staff channels (lost on restart)")
+	}
 	if d.attendance != nil && d.attendance.client != nil && i.GuildID == d.attendance.client.guild {
 		lines = append(lines, "`/attendance parent session:<slug> date:<YYYY-MM-DD>` - Private linked-camper workflow")
 		if user := interactionUser(i); user != nil && d.attendance.client.staff[user.ID] {
@@ -233,6 +260,14 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 func (d *DiscordBot) slashResponse(s *discordgo.Session, i *discordgo.Interaction, request discordSlashRequest) string {
 	user := interactionUser(i)
 	switch request.name {
+	case "kit-status", "kit-remind":
+		if i.GuildID == "" || !d.slashStaff(i) {
+			return "This command is restricted to approved staff."
+		}
+		if request.name == "kit-status" {
+			return d.staffStatus(context.Background())
+		}
+		return d.handleReminder(s, i, request)
 	case "help", "commands":
 		return d.slashHelp(s, i)
 	case "status", "health", "version":
