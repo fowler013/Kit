@@ -15,22 +15,24 @@ import (
 
 // DiscordBot holds the Discord bot configuration
 type DiscordBot struct {
-	session       *discordgo.Session
-	geminiClient  *GeminiClient
-	claudeClient  *ClaudeClient
-	aiService     *AIService
-	startTime     string
-	botID         string
-	mu            sync.RWMutex
-	attendance    *discordAttendance
-	commands      discordCommandConfig
-	registerOnce  sync.Once
-	startedAt     time.Time
-	registration  string
-	opsChannel    string
-	staffChannels map[string]bool
-	staffRole     string
-	reminders     *reminderStore
+	session        *discordgo.Session
+	geminiClient   *GeminiClient
+	claudeClient   *ClaudeClient
+	aiService      *AIService
+	startTime      string
+	botID          string
+	mu             sync.RWMutex
+	attendance     *discordAttendance
+	commands       discordCommandConfig
+	registerOnce   sync.Once
+	startedAt      time.Time
+	registration   string
+	opsChannel     string
+	staffChannels  map[string]bool
+	staffRole      string
+	reminders      *reminderStore
+	ticketsChannel string
+	tickets        ticketStore
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -50,17 +52,18 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		discordgo.IntentsMessageContent
 
 	bot := &DiscordBot{
-		session:       session,
-		geminiClient:  geminiClient,
-		claudeClient:  claudeClient,
-		aiService:     aiService,
-		startTime:     startTime,
-		commands:      discordCommandsFromEnv(),
-		startedAt:     time.Now(),
-		opsChannel:    strings.TrimSpace(os.Getenv("KIT_OPS_CHANNEL_ID")),
-		staffChannels: parseIDSet(os.Getenv("CAMP_ALLOWED_CHANNEL_IDS")),
-		staffRole:     strings.TrimSpace(os.Getenv("CAMP_ALLOWED_ROLE")),
-		reminders:     newReminderStore(),
+		session:        session,
+		geminiClient:   geminiClient,
+		claudeClient:   claudeClient,
+		aiService:      aiService,
+		startTime:      startTime,
+		commands:       discordCommandsFromEnv(),
+		startedAt:      time.Now(),
+		opsChannel:     strings.TrimSpace(os.Getenv("KIT_OPS_CHANNEL_ID")),
+		staffChannels:  parseIDSet(os.Getenv("CAMP_ALLOWED_CHANNEL_IDS")),
+		staffRole:      strings.TrimSpace(os.Getenv("CAMP_ALLOWED_ROLE")),
+		reminders:      newReminderStore(),
+		ticketsChannel: strings.TrimSpace(os.Getenv("KIT_TICKETS_CHANNEL_ID")),
 	}
 	attendance, err := attendanceFromEnv()
 	if err != nil {

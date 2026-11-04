@@ -1,4 +1,58 @@
-# Slack Slash Commands Setup Guide
+# Slash Commands Setup Guide
+
+## Discord staff tickets
+
+Discord commands use Kit's existing guild-scoped startup registration, not Slack
+Socket Mode. `/help` shows approved staff `/ticket new
+type:<request|feedback|bug|idea>`. The command's initial response opens a modal;
+provide a required title (up to 100 characters) and details (up to 1,500).
+**No medical, family, or camper personal info. Not for emergencies or safety
+reports.** Follow the camp's separate safety/emergency process.
+
+Enable only after the owner approves a destination: set optional
+`KIT_TICKETS_CHANNEL_ID` to one staff-only guild text channel in the configured
+`DISCORD_GUILD_ID` (or its attendance-guild fallback). Unset means disabled.
+The existing `DISCORD_ATTENDANCE_STAFF_IDS` JSON allowlist authorizes command,
+modal submission, and every lifecycle button; parents and campers are excluded.
+Kit rechecks destination privacy before submissions and updates: `@everyone`
+must explicitly be denied View Channel and all visibility grants must belong
+to allowlisted staff, Kit, or the exact `CAMP_ALLOWED_ROLE` (case-insensitive).
+Unknown/public audiences, permission lookup errors, wrong guilds, forums, and
+thread destinations fail closed. Administrators retain Discord's inherent access.
+The ticket channel need not be separately listed in `CAMP_ALLOWED_CHANNEL_IDS`.
+Kit needs View Channel, Send Messages, Embed Links, Read Message History,
+Create Public Threads, and Manage Threads in that channel.
+**Administrator-enabled users and apps/bots bypass channel overwrites.** This
+check does not exclude Appy, MEE6, Sapphire, or any other administrator-enabled
+app. Before enabling intake, an operator must separately review the actual
+staff/admin/app audience and permissions. Do not put sensitive data in tickets
+even when the overwrite check passes.
+
+Tickets are team-visible messages, not private adult-minor channels. Each has a
+random ticket ID, category, title/details, non-pinging submitter mention, creation
+time, Open status, and a discussion thread. **Claim** sets In progress with the
+staff member; **Resolve** sets Resolved and archives the thread; **Reopen** sets
+Open and unarchives it. Receipts and denials are ephemeral with no DMs. All posts
+and edits suppress mentions and neutralize `@everyone`/`@here`. Ticket bodies
+are neither logged nor sent to AI.
+
+Status is stored in the Discord message and survives restart without a database.
+The five-attempts-per-user/ten-minute rate limit resets on restart; pending forms
+must be reopened. Forms expire after ten minutes and opening another replaces
+the previous form. Used forms cannot repeat delivery; uncertain sends are not
+retried automatically, so check the channel before submitting again. Thread
+creation or archival failures explicitly report partial success for operator
+follow-up. Fresh message reads and revisioned buttons reject stale actions.
+Run only one active Kit instance (Discord has no atomic cross-instance edits).
+Deleted messages lose their ticket state; changing the configured destination
+disables old-channel controls. Parent/camper intake is a separately approved
+future expansion.
+
+Use synthetic mocked tests (`go test ./...`), not live Discord messages or
+manual command registration, to validate code changes. See the README's
+[staff ticket details](../README.md#staff-tickets).
+
+## Slack setup
 
 ## Overview
 This guide shows you how to add slash commands to your Kit bot, enabling users to interact with Kit using `/kit` commands.

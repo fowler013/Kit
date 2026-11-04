@@ -190,6 +190,13 @@ func (d *DiscordBot) privateReminderChannel(ctx context.Context, s *discordgo.Se
 	if !d.reminderChannelAllowed(&discordgo.Interaction{GuildID: guild, ChannelID: channelID}) {
 		return false
 	}
+	return d.privateStaffTextChannel(ctx, s, guild, channelID)
+}
+
+func (d *DiscordBot) privateStaffTextChannel(ctx context.Context, s *discordgo.Session, guild, channelID string) bool {
+	if guild == "" || guild != d.commands.guild || channelID == "" {
+		return false
+	}
 	channel, err := s.Channel(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		log.Println("Kit reminder channel verification failed; access denied")
@@ -234,7 +241,7 @@ func (d *DiscordBot) privateReminderChannel(ctx context.Context, s *discordgo.Se
 			}
 			approved := false
 			for _, role := range roles {
-				if role.ID == overwrite.ID && strings.EqualFold(role.Name, d.staffRole) {
+				if role != nil && role.ID == overwrite.ID && strings.EqualFold(role.Name, d.staffRole) {
 					approved = true
 				}
 			}
