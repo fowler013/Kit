@@ -113,6 +113,124 @@ func TestDiscordIntentsAndReadiness(t *testing.T) {
 	bot.onMessageCreate(bot.session, &discordgo.MessageCreate{})
 }
 
+func TestDiscordCampRoleLookupIsLazy(t *testing.T) {
+	var exports atomic.Int32
+	camp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/admin/export-json" {
+			t.Errorf("unexpected camp request: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		exports.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"success":true,"registrations":[]}`)
+	}))
+	defer camp.Close()
+	oldCamp := globalCampClient
+	t.Cleanup(func() { globalCampClient = oldCamp })
+
+	for _, test := range []struct {
+		name, content, user, channel, role, want string
+		dm, roleFailure, ai                      bool
+		lookups, exports                         int
+	}{
+		{name: "help", content: "!help", want: "Kit Discord Commands"},
+		{name: "status", content: "!status", want: "Kit Discord Status"},
+		{name: "version", content: "!version", want: "Kit v1.0"},
+		{name: "user ID", content: "!myid", want: "user"},
+		{name: "links", content: "!links", want: camp.URL},
+		{name: "wrapped help", content: "!KiT !help", want: "Kit Discord Commands"},
+		{name: "AI mention", content: "<@99> hello", want: "AI response", ai: true},
+		{name: "AI command", content: "!kit hello", want: "AI response", ai: true},
+		{name: "direct message", content: "hello", dm: true, want: "AI response", ai: true},
+		{name: "allowlisted staff", content: "!camp stats", user: "123", want: "Registration Stats", exports: 1},
+		{name: "allowlisted staff in public", content: "!camp stats", user: "123", channel: "public", want: "For privacy"},
+		{name: "role staff", content: "!camp stats", role: "staff", want: "Registration Stats", lookups: 1, exports: 1},
+		{name: "natural role query", content: "<@!99> who registered for camp?", role: "staff", want: "Roster", lookups: 1, exports: 1},
+		{name: "wrapped role query", content: "!KiT !camp stats", role: "staff", want: "Registration Stats", lookups: 1, exports: 1},
+		{name: "role staff in public", content: "!camp stats", role: "staff", channel: "public", want: "For privacy", lookups: 1},
+		{name: "unauthorized", content: "!camp stats", role: "visitor", want: "restricted", lookups: 1},
+		{name: "role lookup failure", content: "!camp stats", role: "staff", roleFailure: true, want: "restricted", lookups: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			globalCampClient = NewCampClient(camp.URL, "", "", "123", "Camp Staff", 30)
+			globalCampClient.SetAllowedChannels("555")
+			exports.Store(0)
+			aiCalls := 0
+			service := NewAIService(nil, nil, providerFunc{name: "synthetic", fn: func(context.Context, string, *Session) (string, error) {
+				aiCalls++
+				return "AI response", nil
+			}})
+			bot, err := NewDiscordBot("synthetic", nil, nil, "test", service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bot.botID = "99"
+			if err := bot.session.State.GuildAdd(&discordgo.Guild{
+				ID: "camp", Channels: []*discordgo.Channel{
+					{ID: "public", GuildID: "camp", Type: discordgo.ChannelTypeGuildText},
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			lookups := 0
+			var messages []discordgo.MessageSend
+			bot.session.Client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				status, body := http.StatusOK, `{"id":"response"}`
+				switch {
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/guilds/camp/roles"):
+					lookups++
+					body = `[{"id":"staff","name":"cAmP sTaFf"},{"id":"visitor","name":"Visitor"}]`
+					if test.roleFailure {
+						status, body = http.StatusForbidden, `{"message":"Missing Access","code":50001}`
+					}
+				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages"):
+					var message discordgo.MessageSend
+					if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+						t.Error(err)
+					}
+					messages = append(messages, message)
+				default:
+					t.Errorf("unexpected Discord request: %s %s", r.Method, r.URL.Path)
+				}
+				return &http.Response{
+					StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: io.NopCloser(strings.NewReader(body)),
+				}, nil
+			})
+			guild, user, channel := "camp", test.user, test.channel
+			if test.dm {
+				guild = ""
+			}
+			if user == "" {
+				user = "user"
+			}
+			if channel == "" {
+				channel = "555"
+			}
+			bot.onMessageCreate(bot.session, &discordgo.MessageCreate{Message: &discordgo.Message{
+				Content: test.content, GuildID: guild, ChannelID: channel,
+				Author: &discordgo.User{ID: user}, Member: &discordgo.Member{Roles: []string{test.role}},
+			}})
+			if lookups != test.lookups {
+				t.Errorf("role REST lookups=%d, want %d", lookups, test.lookups)
+			}
+			if got := exports.Load(); got != int32(test.exports) {
+				t.Errorf("camp exports=%d, want %d", got, test.exports)
+			}
+			if (aiCalls > 0) != test.ai {
+				t.Errorf("AI calls=%d, want called=%t", aiCalls, test.ai)
+			}
+			if len(messages) != 1 || !strings.Contains(messages[0].Content, test.want) {
+				t.Fatalf("response=%+v, want text containing %q", messages, test.want)
+			}
+			if messages[0].AllowedMentions == nil || len(messages[0].AllowedMentions.Parse) != 0 {
+				t.Error("response could notify unsolicited mentions")
+			}
+		})
+	}
+}
+
 func TestDisabledCampDoesNotReachAI(t *testing.T) {
 	oldCamp := globalCampClient
 	globalCampClient = nil
@@ -123,7 +241,7 @@ func TestDisabledCampDoesNotReachAI(t *testing.T) {
 		return "should not be called", nil
 	}})
 	bot := &DiscordBot{aiService: service}
-	response := bot.generateDiscordResponse("who registered for camp?", "123", "456", false, nil)
+	response := bot.generateDiscordResponse("who registered for camp?", "123", "456", nil, nil)
 	if called || !strings.Contains(response, "not configured") {
 		t.Fatal("disabled camp query was not kept out of the AI provider")
 	}

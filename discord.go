@@ -137,9 +137,9 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	log.Println("🔵 Discord request received")
 
 	// Process the message
-	hasCampRole := d.memberHasCampRole(s, m)
+	campRoleOK := func() bool { return d.memberHasCampRole(s, m) }
 	campChannelOK := func() bool { return d.campChannelAllowed(s, m) }
-	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole, campChannelOK)
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, campRoleOK, campChannelOK)
 	if strings.TrimSpace(response) == "" {
 		return
 	}
@@ -268,9 +268,10 @@ func (d *DiscordBot) campChannelAllowed(s *discordgo.Session, m *discordgo.Messa
 }
 
 // generateDiscordResponse generates a response for Discord messages.
+// campRoleOK is only called for camp queries from users not already allowlisted.
 // campChannelOK is only called for camp queries from authorized users; a nil
 // value means the channel is not a staff channel.
-func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool, campChannelOK func() bool) string {
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, campRoleOK, campChannelOK func() bool) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 	if fields := strings.Fields(cleanMessage); len(fields) > 0 && strings.EqualFold(fields[0], "!kit") {
@@ -294,6 +295,10 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	if isCampQuery(cleanMessage) {
 		if globalCampClient == nil {
 			return "⚠️ Camp integration is not configured. Ask the operator to configure and verify the Camp Power-Up connection."
+		}
+		hasCampRole := false
+		if !globalCampClient.isAuthorized(userID, false) && campRoleOK != nil {
+			hasCampRole = campRoleOK()
 		}
 		// Even authorized users only get registration data in staff channels or DMs.
 		if globalCampClient.isAuthorized(userID, hasCampRole) && (campChannelOK == nil || !campChannelOK()) {
