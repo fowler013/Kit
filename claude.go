@@ -38,9 +38,6 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// System prompt for Kit's personality
-	systemPrompt := `You are Kit, a helpful and friendly AI assistant integrated into Slack. Keep responses under 300 words and be professional but approachable.`
-
 	// Create the message request
 	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.model),
@@ -48,7 +45,7 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 		System: []anthropic.TextBlockParam{
 			{
 				Type: "text",
-				Text: systemPrompt,
+				Text: kitSystemPrompt,
 			},
 		},
 		Messages: []anthropic.MessageParam{
