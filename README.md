@@ -112,27 +112,69 @@ GEMINI_MODEL=
 
 ### Discord slash commands
 
-`/status` (`/health`), `/help` (`/commands`), `/version`, `/myid`, and `/links`
-mirror the text commands. `/help` filters staff-only workflows by the caller's
-access. `/myid` and all informational commands respond privately.
+Slash commands are registered for a configured Discord server, not DMs.
+`/help` (or `/commands`) lists general commands and only shows staff workflows
+available to the caller.
 
-Use `/kit ask prompt:<text> visibility:<private|public>` for AI chat through the
-existing provider chain. Visibility defaults to **private** (ephemeral); choose
-`public` explicitly to share an answer. Responses are deferred before provider
-calls, and long answers are split into Discord-safe chunks with the same
-visibility and no unsolicited mentions. Private slash chats use separate
-conversation history from public and legacy chats.
+| Command | Example | Behavior |
+| --- | --- | --- |
+| `/status` or `/health` | `/status` | Show Kit connection and AI-provider status. |
+| `/help` or `/commands` | `/help` | List commands available to you. |
+| `/version` | `/version` | Show Kit's version. |
+| `/myid` | `/myid` | Show your Discord user ID privately. |
+| `/links` | `/links` | Show Camp Power-Up website links. |
+| `/kit ask` | `/kit ask prompt:"Suggest a general camp packing list" visibility:private` | Ask Kit through the configured AI providers. |
+| `/camp` | `/camp query:stats` | Run an authorized, private Camp Power-Up query. |
+| `/attendance` | `/attendance parent session:<configured-slug> date:<YYYY-MM-DD>` | Private parent/staff workflow; disabled until separately approved and enabled. |
 
-`/camp query:<help|stats|roster|unpaid|capacity>` is always ephemeral. The caller
-must be in the JSON `DISCORD_ATTENDANCE_STAFF_IDS` allowlist **and** have existing
-`CAMP_ALLOWED_DISCORD_IDS` or `CAMP_ALLOWED_ROLE` access. Existing
-`CAMP_ALLOWED_CHANNEL_IDS` restrictions (including staff-channel threads) still
-apply; ephemeral replies do not bypass them. Camp questions through `/kit ask`
-use these same checks and are forced private even if `public` was selected.
-Registration data never goes to an AI provider. `/attendance` retains its
-private parent/staff workflows and remains disabled until its separately
-approved backend rollout; see [private attendance](docs/DISCORD_ATTENDANCE.md).
-Existing `!` commands, `!kit <question>`, @mentions and DMs remain supported.
+`/kit ask` visibility defaults to **private** (ephemeral). Choose
+`visibility:public` only when you intend everyone in that channel to see the
+answer. Replies are deferred before provider calls, long answers are split into
+Discord-safe chunks, and unsolicited mentions are suppressed. Private slash
+chats use separate conversation history from public and legacy chats. Never
+include camper or family private information in an AI prompt, even in a private
+reply.
+
+`/camp` is **always private** and reads registration data directly from
+Camp Power-Up; that data is not sent to an AI provider. `/kit ask` prompts
+recognized as camp-registration queries follow the same authorization checks
+and are forced private even if `public` was selected. Supported `/camp query`
+values are `help`, `stats`, `roster`, `unpaid`, and `capacity`.
+
+### Staff access and privacy
+
+Discord's default slash-command permission is **Use Application Commands**;
+Administrator is not required for ordinary command use. This platform
+permission is not staff authorization. `/camp` additionally requires all of:
+
+- The caller is listed as a Discord ID string in the JSON array
+  `DISCORD_ATTENDANCE_STAFF_IDS`.
+- The caller has the existing Camp Power-Up access granted by
+  `CAMP_ALLOWED_DISCORD_IDS` or `CAMP_ALLOWED_ROLE`.
+- The request is in the configured guild and an allowed staff channel from
+  `CAMP_ALLOWED_CHANNEL_IDS`. Threads inside an allowed channel are accepted;
+  other server channels are denied. A private slash reply does not bypass this
+  authorization.
+
+Keep staff channels private and grant access only to the intended staff. Do not
+share roster, payment, attendance, camper, family, or pickup details in public
+channels, AI prompts, screenshots, logs, or test data. `/attendance` replies,
+including errors, are ephemeral, but the workflow remains unavailable unless
+its separate backend rollout is approved and `DISCORD_ATTENDANCE_ENABLED` is
+set to `true`; merely seeing the command does not enable it. The staff workflow
+requires an allowlisted staff ID in the configured guild, with authorization
+also enforced by the attendance backend. Parents can only select approved
+linked campers. See [private attendance](docs/DISCORD_ATTENDANCE.md).
+
+### Safe testing
+
+For a local documentation or code change, use automated tests such as
+`go test ./...`; Discord command tests use synthetic identities and mocked
+responses, not a live server or Camp Power-Up account. Do not use real camper
+or family data in test prompts or fixtures. Do not test real arrival, pickup,
+check-in, or release workflows, enable attendance, register commands in a live
+guild, or deploy the bot as part of a safe documentation check. Existing `!`
+commands, `!kit <question>`, @mentions, and DMs remain supported.
 
 Configure these variables locally or in Railway:
 
@@ -141,7 +183,10 @@ Configure these variables locally or in Railway:
 | `DISCORD_GUILD_ID` | Target server ID; falls back to `DISCORD_ATTENDANCE_GUILD_ID` if empty |
 | `DISCORD_APPLICATION_ID` | Optional application ID; defaults to the logged-in bot's ID |
 | `DISCORD_REGISTER_COMMANDS` | Empty defaults to on when a guild ID is set; `false` skips registration without disabling handlers |
-| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; used by `/camp` even with attendance disabled |
+| `DISCORD_ATTENDANCE_STAFF_IDS` | JSON array of approved staff ID strings; required by `/camp` even with attendance disabled |
+| `CAMP_ALLOWED_DISCORD_IDS` | Comma-separated Discord IDs authorized for Camp Power-Up queries |
+| `CAMP_ALLOWED_ROLE` | Optional Discord role name (case-insensitive match) that grants Camp Power-Up access |
+| `CAMP_ALLOWED_CHANNEL_IDS` | Comma-separated allowed staff channel IDs; empty restricts server queries to DMs |
 
 For the camp server, the guild is `1537008248048328726` and the application is
 `1537124728131817603`. Startup performs one **guild-scoped bulk overwrite** of
