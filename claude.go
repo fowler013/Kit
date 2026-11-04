@@ -66,7 +66,7 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 	// Extract text from response
 	if len(resp.Content) > 0 {
 		if resp.Content[0].Type == "text" {
-			return resp.Content[0].Text, nil
+			return finalizeAIResponse(resp.Content[0].Text, resp.StopReason == anthropic.StopReasonMaxTokens), nil
 		}
 	}
 

@@ -50,7 +50,8 @@ type ghChatRequest struct {
 
 type ghChatResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
@@ -118,7 +119,7 @@ func (g *GitHubModelsClient) GenerateResponse(message string) (string, error) {
 	}
 
 	if len(parsed.Choices) > 0 && parsed.Choices[0].Message.Content != "" {
-		return parsed.Choices[0].Message.Content, nil
+		return finalizeAIResponse(parsed.Choices[0].Message.Content, parsed.Choices[0].FinishReason == "length"), nil
 	}
 
 	return "", nil

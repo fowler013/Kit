@@ -57,7 +57,8 @@ type oaChatRequest struct {
 
 type oaChatResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
@@ -127,7 +128,7 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 	}
 
 	if len(parsed.Choices) > 0 && parsed.Choices[0].Message.Content != "" {
-		return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+		return finalizeAIResponse(strings.TrimSpace(parsed.Choices[0].Message.Content), parsed.Choices[0].FinishReason == "length"), nil
 	}
 
 	return "", nil
