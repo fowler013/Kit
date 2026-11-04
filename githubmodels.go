@@ -68,12 +68,10 @@ func (g *GitHubModelsClient) GenerateResponse(message string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	systemPrompt := `You are Kit, a helpful and friendly AI assistant integrated into Slack and Discord. Keep responses under 300 words and be professional but approachable.`
-
 	payload := ghChatRequest{
 		Model: g.model,
 		Messages: []ghChatMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: kitSystemPrompt},
 			{Role: "user", Content: message},
 		},
 		MaxTokens:   1000,

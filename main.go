@@ -553,27 +553,50 @@ func handleMentionEvent(event *slackevents.AppMentionEvent, api *slack.Client) {
 }
 
 // removeBotMention removes bot mention tags from message text
-func removeBotMention(text string) string {
-	// Remove mentions like <@U123456789> and clean up
-	cleanText := text
-	if strings.Contains(cleanText, "<@") {
-		parts := strings.Split(cleanText, ">")
-		if len(parts) > 1 {
-			cleanText = strings.Join(parts[1:], ">")
-		}
+func normalizeBotMessage(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(trimmed), " ")
+}
+
+func stripMentionForUser(text, userID string) string {
+	cleanText := normalizeBotMessage(text)
+	if cleanText == "" || userID == "" {
+		return cleanText
 	}
 
-	return strings.TrimSpace(cleanText)
+	for _, mention := range []string{
+		fmt.Sprintf("<@%s>", userID),
+		fmt.Sprintf("<@!%s>", userID),
+	} {
+		cleanText = strings.ReplaceAll(cleanText, mention, "")
+	}
+	return normalizeBotMessage(cleanText)
+}
+
+func removeBotMention(text string) string {
+	cleanText := normalizeBotMessage(text)
+	for strings.Contains(cleanText, "<@") {
+		start := strings.Index(cleanText, "<@")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(cleanText[start+2:], ">")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		cleanText = normalizeBotMessage(cleanText[:start] + cleanText[end+1:])
+	}
+	return cleanText
 }
 
 // generateResponse creates a response to user messages with AI integration
 func generateResponse(message, userID string) string {
-	// Clean the message text
-	cleanMessage := strings.TrimSpace(message)
-
-	// Remove mention tags like <@U123456789>
-	cleanMessage = strings.ReplaceAll(cleanMessage, fmt.Sprintf("<@%s>", userID), "")
-	cleanMessage = strings.TrimSpace(cleanMessage)
+	// Clean the message text once before any provider or command logic.
+	cleanMessage := stripMentionForUser(message, userID)
 
 	log.Printf("💭 Generating response for: '%s'", cleanMessage)
 
@@ -596,7 +619,7 @@ func generateResponse(message, userID string) string {
 
 // handleSpecialCommands processes special bot commands
 func handleSpecialCommands(message string) string {
-	cleanMessage := strings.ToLower(strings.TrimSpace(message))
+	cleanMessage := strings.ToLower(normalizeBotMessage(message))
 
 	switch {
 	case cleanMessage == "status" || cleanMessage == "health":
@@ -641,7 +664,7 @@ func handleSpecialCommands(message string) string {
 
 // generateBasicResponse provides fallback responses when AI is unavailable
 func generateBasicResponse(cleanMessage string) string {
-	cleanMessage = strings.ToLower(cleanMessage)
+	cleanMessage = strings.ToLower(normalizeBotMessage(cleanMessage))
 
 	switch {
 	case strings.Contains(cleanMessage, "hello") || strings.Contains(cleanMessage, "hi") || strings.Contains(cleanMessage, "hey"):
