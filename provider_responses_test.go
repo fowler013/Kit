@@ -250,6 +250,13 @@ func TestGeminiResponseWithoutContent(t *testing.T) {
 
 func TestKitSystemPrompt(t *testing.T) {
 	for _, instruction := range []string{
+		"video-game guide and companion", "primary purpose is to help campers navigate games",
+		"Prioritize Minecraft and Pokemon", "other game questions when you can do so reliably",
+		"age-appropriate, encouraging, practical guidance", "help them learn and create",
+		"edition/version, platform, or the camper's goal", "Be clear when you are unsure",
+		"Never invent game mechanics", "Do not imply you can see a player's game",
+		"Do not ask for or repeat private or identifying information",
+		"direct the camper to a trusted adult or camp staff",
 		"under 300 words", "short sections", "Do not invent Kit features",
 		"no built-in database", "in memory and lost on restart",
 		"would need to be built", "do not guess commands or features", "official documentation",
