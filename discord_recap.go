@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -113,7 +114,75 @@ var recapEmail = regexp.MustCompile(`(?i)[a-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+
 var recapPhone = regexp.MustCompile(`\+?\d[\d ()+.-]{5,}\d`)
 var recapID = regexp.MustCompile(`\b\d{15,22}\b`)
 
-func recapNames(messages []*discordgo.Message) *regexp.Regexp {
+const maxRecapParticipants = 200
+
+type recapMemberResolver func(context.Context, string) (*discordgo.Member, error)
+
+func resolveRecapMembers(ctx context.Context, messages []*discordgo.Message, resolve recapMemberResolver) []*discordgo.Member {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ids := []string{}
+	seen := map[string]bool{}
+	add := func(user *discordgo.User) {
+		if user != nil && user.ID != "" && !seen[user.ID] && len(ids) < maxRecapParticipants {
+			seen[user.ID] = true
+			ids = append(ids, user.ID)
+		}
+	}
+	// Prioritize the at-most-100 authors before filling the remaining budget with mentions.
+	for _, message := range messages {
+		if message != nil {
+			add(message.Author)
+		}
+	}
+	for _, message := range messages {
+		if message != nil {
+			for _, user := range message.Mentions {
+				add(user)
+			}
+		}
+	}
+	members := []*discordgo.Member{}
+	incomplete := false
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			incomplete = true
+			break
+		}
+		member, err := resolve(ctx, id)
+		if err != nil || member == nil {
+			incomplete = true
+			continue
+		}
+		members = append(members, member)
+	}
+	if incomplete || len(ids) == maxRecapParticipants {
+		log.Println("Discord recap participant metadata may be incomplete; redaction is best-effort")
+	}
+	return members
+}
+
+func guildRecapMemberResolver(s *discordgo.Session, guild string) recapMemberResolver {
+	return func(ctx context.Context, user string) (*discordgo.Member, error) {
+		if s.State != nil {
+			if member, err := s.State.Member(guild, user); err == nil && member != nil {
+				s.State.RLock()
+				copyMember := *member
+				if member.User != nil {
+					copyUser := *member.User
+					copyMember.User = &copyUser
+				}
+				s.State.RUnlock()
+				return &copyMember, nil
+			}
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		return s.GuildMember(guild, user, discordgo.WithContext(lookupCtx))
+	}
+}
+
+func recapNames(messages []*discordgo.Message, members ...*discordgo.Member) *regexp.Regexp {
 	names := map[string]bool{}
 	addUser := func(user *discordgo.User) {
 		if user != nil {
@@ -122,12 +191,21 @@ func recapNames(messages []*discordgo.Message) *regexp.Regexp {
 		}
 	}
 	for _, message := range messages {
+		if message == nil {
+			continue
+		}
 		addUser(message.Author)
 		if message.Member != nil {
 			names[message.Member.Nick] = true
 		}
 		for _, user := range message.Mentions {
 			addUser(user)
+		}
+	}
+	for _, member := range members {
+		if member != nil {
+			names[member.Nick] = true
+			addUser(member.User)
 		}
 	}
 	delete(names, "")
@@ -167,8 +245,8 @@ func sanitizeRecapText(text string, names *regexp.Regexp) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-func anonymizeRecap(messages []*discordgo.Message) string {
-	names := recapNames(messages)
+func anonymizeRecap(messages []*discordgo.Message, members ...*discordgo.Member) string {
+	names := recapNames(messages, members...)
 	campers := map[string]int{}
 	var transcript strings.Builder
 	total := 0
@@ -221,7 +299,8 @@ func (d *DiscordBot) handleRecap(s *discordgo.Session, i *discordgo.Interaction,
 		log.Println("Discord recap history fetch failed")
 		return "Could not read channel history. Check Kit's View Channel and Read Message History permissions."
 	}
-	transcript := anonymizeRecap(messages)
+	members := resolveRecapMembers(ctx, messages, guildRecapMemberResolver(s, i.GuildID))
+	transcript := anonymizeRecap(messages, members...)
 	if transcript == "" {
 		return "No eligible human messages were found in the last 24 hours (up to 100 recent messages checked)."
 	}
@@ -234,7 +313,7 @@ func (d *DiscordBot) handleRecap(s *discordgo.Session, i *discordgo.Interaction,
 		return "The AI provider could not produce a recap. Please try again later."
 	}
 	// Defense in depth if a provider echoes a source name or contact detail.
-	response = sanitizeRecapText(response, recapNames(messages))
+	response = sanitizeRecapText(response, recapNames(messages, members...))
 	words := strings.Fields(response)
 	if len(words) > 220 {
 		response = strings.Join(words[:220], " ") + " (Summary shortened.)"

@@ -62,6 +62,95 @@ func TestAnonymizeRecap(t *testing.T) {
 	}
 }
 
+func TestRecapRESTHistoryParticipantNames(t *testing.T) {
+	s, _ := slashTestSession(t, 200)
+	cached := &discordgo.Member{GuildID: slashTestGuild, Nick: "StateNickname",
+		User: &discordgo.User{ID: slashTestParent, Username: "StateUsername", GlobalName: "StateGlobal"}}
+	if err := s.State.MemberAdd(cached); err != nil {
+		t.Fatal(err)
+	}
+	restReads := map[string]int{}
+	s.Client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		restReads[id]++
+		if !strings.Contains(r.URL.Path, "/guilds/"+slashTestGuild+"/members/") {
+			t.Fatalf("unexpected member path: %s", r.URL.Path)
+		}
+		if deadline, ok := r.Context().Deadline(); !ok || time.Until(deadline) > 2*time.Second {
+			t.Fatal("member lookup missing bounded request context")
+		}
+		payload := `{"nick":"RestNickname","user":{"id":"` + slashTestStaff + `","username":"RestUsername","global_name":"RestGlobal"}}`
+		status := 200
+		if id == "mentioned" {
+			payload = `{"nick":"MentionNickname","user":{"id":"mentioned","username":"MentionUsername","global_name":"MentionGlobal"}}`
+		}
+		if id == "failed" {
+			status, payload = 404, `{"message":"Unknown Member"}`
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(payload))}, nil
+	})
+	messages := []*discordgo.Message{
+		{Author: &discordgo.User{ID: slashTestParent, Username: "HistoryUsername"},
+			Content:  "StateNickname RestNickname MentionNickname FailedUsername StateGlobal RestGlobal MentionGlobal enjoy Minecraft",
+			Mentions: []*discordgo.User{{ID: "mentioned"}, {ID: "failed", Username: "FailedUsername"}}},
+		{Author: &discordgo.User{ID: slashTestStaff}, Content: "StateUsername RestUsername MentionUsername enjoy Pokemon"},
+		{Author: &discordgo.User{ID: slashTestParent}, Content: "StateNickname plays again",
+			Mentions: []*discordgo.User{{ID: "mentioned"}}},
+	}
+	for _, message := range messages {
+		if message.Member != nil {
+			t.Fatal("history regression must not supply gateway member metadata")
+		}
+	}
+	members := resolveRecapMembers(context.Background(), messages, guildRecapMemberResolver(s, slashTestGuild))
+	if len(members) != 3 || restReads[slashTestParent] != 0 || restReads[slashTestStaff] != 1 ||
+		restReads["mentioned"] != 1 || restReads["failed"] != 1 {
+		t.Fatalf("wrong state/REST resolution: members=%d reads=%v", len(members), restReads)
+	}
+	transcript := anonymizeRecap(messages, members...)
+	for _, name := range []string{"StateNickname", "RestNickname", "MentionNickname", "FailedUsername",
+		"StateUsername", "RestUsername", "MentionUsername", "StateGlobal", "RestGlobal", "MentionGlobal"} {
+		if strings.Contains(transcript, name) {
+			t.Errorf("participant name leaked: %s", name)
+		}
+	}
+	if strings.Count(transcript, "Camper 1:") != 2 || strings.Count(transcript, "Camper 2:") != 1 {
+		t.Fatal("resolved metadata changed stable author numbering")
+	}
+	if got := sanitizeRecapText("StateNickname RestNickname MentionNickname", recapNames(messages, members...)); strings.Contains(got, "Nickname") {
+		t.Fatal("output redaction omitted resolved nicknames")
+	}
+}
+
+func TestRecapParticipantLookupBounds(t *testing.T) {
+	messages := []*discordgo.Message{{Author: &discordgo.User{ID: "author"}}}
+	for n := 0; n < maxRecapParticipants+20; n++ {
+		messages[0].Mentions = append(messages[0].Mentions, &discordgo.User{ID: fmt.Sprint(n)})
+	}
+	calls := 0
+	resolve := func(ctx context.Context, id string) (*discordgo.Member, error) {
+		calls++
+		if calls == 1 && id != "author" {
+			t.Fatal("authors not prioritized")
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 10*time.Second {
+			t.Fatal("participant lookup budget missing")
+		}
+		return nil, fmt.Errorf("unavailable")
+	}
+	resolveRecapMembers(context.Background(), messages, resolve)
+	if calls != maxRecapParticipants {
+		t.Fatalf("lookup count=%d", calls)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	resolveRecapMembers(ctx, messages, resolve)
+	if calls != maxRecapParticipants {
+		t.Fatal("canceled context attempted lookup")
+	}
+}
+
 func TestRecapInputBoundsAndRedactionBeforeTruncation(t *testing.T) {
 	messages := []*discordgo.Message{}
 	for n := 0; n < 100; n++ {
@@ -224,7 +313,7 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 				if _, ok := ctx.Deadline(); !ok {
 					t.Fatal("missing AI deadline")
 				}
-				if strings.Contains(transcript, "PrivateName") || strings.Contains(transcript, slashTestParent) ||
+				if strings.Contains(transcript, "PrivateName") || strings.Contains(transcript, "PrivateNickname") || strings.Contains(transcript, slashTestParent) ||
 					!strings.Contains(transcript, "Camper 1:") {
 					t.Fatalf("raw content reached provider: %s", transcript)
 				}
@@ -234,7 +323,7 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 				if mode == "long" {
 					return strings.Repeat("word ", 400), nil
 				}
-				return "Minecraft building was discussed. @everyone PrivateName alice@example.com", nil
+				return "Minecraft building was discussed. @everyone PrivateName PrivateNickname alice@example.com", nil
 			}})
 			original := s.Client.Transport
 			s.Client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -248,7 +337,7 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 						if r.URL.Query().Get("limit") != "50" {
 							t.Error("missing history limit")
 						}
-						message := recapMessage("one", time.Now().Add(-time.Hour), slashTestParent, "PrivateName likes Minecraft")
+						message := recapMessage("one", time.Now().Add(-time.Hour), slashTestParent, "PrivateName PrivateNickname likes Minecraft")
 						message.Author.Username = "PrivateName"
 						if mode == "bot-only" {
 							message.Author.Bot = true
@@ -264,6 +353,8 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 						if mode == "history-failure" {
 							status, payload = 403, `{"message":"PrivateName"}`
 						}
+					} else if strings.Contains(r.URL.Path, "/members/") {
+						payload = `{"user":{"id":"` + slashTestParent + `","username":"PrivateName"},"nick":"PrivateNickname"}`
 					} else {
 						guild, kind := slashTestGuild, 0
 						if mode == "wrong-source-guild" {
@@ -299,7 +390,7 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 			if (aiCalls == 1) != wantAI {
 				t.Fatalf("AI calls=%d, mode %s", aiCalls, mode)
 			}
-			if len(store.sessions) != 0 || strings.Contains(logs.String(), "PrivateName") {
+			if len(store.sessions) != 0 || strings.Contains(logs.String(), "PrivateName") || strings.Contains(logs.String(), "PrivateNickname") {
 				t.Fatal("recap content persisted/logged")
 			}
 			if mode == "ack-failure" {
@@ -336,7 +427,7 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 					t.Fatal(err)
 				}
 				if len(reply.AllowedMentions.Parse) != 0 || strings.Contains(reply.Content, "@everyone") ||
-					strings.Contains(reply.Content, "PrivateName") || strings.Contains(reply.Content, "alice@example.com") {
+					strings.Contains(reply.Content, "PrivateName") || strings.Contains(reply.Content, "PrivateNickname") || strings.Contains(reply.Content, "alice@example.com") {
 					t.Fatal("unsafe recap output")
 				}
 				if mode == "long" && len(strings.Fields(reply.Content)) >= 250 {

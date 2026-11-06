@@ -97,6 +97,18 @@ URLs, emails and phone-like patterns are redacted; attachments become markers,
 not downloaded content. Inputs are capped near 300 characters per message and
 20,000 characters total. Empty history does not call AI.
 
+Before redaction, Kit resolves unique authors and mentioned users from guild
+member state, then falls back to individual REST member lookups for missing
+entries. Up to 200 participants are checked (authors first), with a two-second
+timeout per REST lookup and a ten-second total metadata budget within the recap
+request timeout. Resolved nicknames, usernames and global names are redacted
+from both the transcript and reply. Failed lookups are tolerated: known names
+are still redacted, but an unavailable nickname may remain in prose.
+The bot does not enable the privileged `GUILD_MEMBERS` intent, so gateway member
+coverage can be incomplete; it does not rely on a full member cache or request
+a member-list download. The individual REST lookup supplies missing metadata
+when Discord permits it; no additional privileged intent is enabled by this feature.
+
 **Anonymized text goes to the configured AI provider(s)**. Redaction is
 best-effort: unknown names and indirect identifying prose may survive. Operators
 must review channel suitability, provider retention, and community disclosure/
