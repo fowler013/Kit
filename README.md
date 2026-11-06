@@ -11,6 +11,8 @@ For hosting, server permissions, and go-live checks, start with
 - 🌐 **Multi-Platform Support**: Works on both Slack and Discord simultaneously
 - 🚀 **Real-time Communication**: Uses platform-native protocols for instant responses
 - 💬 **Intelligent Conversations**: Context-aware responses to any question
+- **Game-first Discord help**: Beginner-friendly tagging, DMs, commands, and server navigation with optional public server reference.
+- **Private staff recaps**: Allowlisted channel summaries with anonymization before AI.
 - 📝 **Comprehensive Logging**: Detailed event logging for monitoring
 - 🔧 **Easy Configuration**: Simple environment-based setup
 - 🎯 **Channel Aware**: Works in public channels, private channels, and DMs
@@ -119,12 +121,13 @@ available to the caller.
 | Command | Example | Behavior |
 | --- | --- | --- |
 | `/status` or `/health` | `/status` | Show Kit connection and AI-provider status. |
-| `/help` or `/commands` | `/help` | List commands available to you. |
+| `/help`, `/commands`, or `/kit help` | `/kit help` | List commands available to you, including beginner Discord help. |
 | `/version` | `/version` | Show Kit's version. |
 | `/myid` | `/myid` | Show your Discord user ID privately. |
 | `/links` | `/links` | Show Camp Power-Up website links. |
 | `/kit ask` | `/kit ask prompt:"Suggest a general camp packing list" visibility:private` | Ask Kit through the configured AI providers. |
 | `/kit status` | `/kit status` | Staff-only, private operational health; no camper data or secrets. |
+| `/kit recap` | `/kit recap channel:#minecraft` | Staff-only, ephemeral summary of up to 100 recent messages within 24 hours from an allowlisted channel. |
 | `/kit remind create` | `/kit remind create in:30m message:"Prepare the equipment"` | Schedule a one-off reminder in the invoking private staff channel. |
 | `/kit remind list` | `/kit remind list` | Privately list your active reminder IDs and UTC times in this channel. |
 | `/kit remind cancel` | `/kit remind cancel id:1` | Privately cancel your reminder in this channel. |
@@ -147,6 +150,59 @@ and are forced private even if `public` was selected. Supported `/camp query`
 values are `help`, `stats`, `roster`, `unpaid`, and `capacity`.
 
 ### Staff access and privacy
+
+#### Discord and server help
+
+Kit remains a camper-friendly game guide first. Ask `@Kit how do I tag someone?`,
+`!kit how do I send a message to a friend?`, or `/kit ask` for beginner Discord help.
+Optional `KIT_SERVER_GUIDE` accepts inline text or a UTF-8 file path, loaded once
+at startup with a 4,000-character limit; only its presence is logged. Copy and
+customize [the public guide template](server_guide.example.md). Missing file paths,
+non-regular files, invalid UTF-8, and oversized guides fail startup rather than
+silently losing context. File paths are cleaned and trusted operator-only
+configuration; they are never accepted from Discord messages.
+
+For navigation questions **in the configured guild only**, Kit sends the guide
+and up to 40 public text/announcement/forum channel names, truncated topics and
+public category names to the AI provider. Visibility is calculated from the
+`@everyone` base role and its channel overwrites; role/member-only channels are
+excluded. Gateway state is used first, REST if unavailable, cached for five
+minutes (permission changes can take up to that long to appear). DMs, other
+guilds, Slack and ordinary game questions get no server reference. The keyword
+heuristic is intentionally broad; ambiguous words like "command" may match.
+Keep the guide public, factual and current. Kit cannot verify unlisted buttons
+or invent server features.
+
+#### Staff channel recaps
+
+`/kit recap channel:<channel>` requires `DISCORD_ATTENDANCE_STAFF_IDS`,
+the configured `DISCORD_GUILD_ID` (or its documented fallback), and an exact
+channel ID in comma-separated `KIT_RECAP_CHANNEL_IDS`. Empty means disabled.
+Only text/announcement channels in that guild are accepted, not threads/forums.
+Grant Kit **View Channel** and **Read Message History** on every allowlisted
+channel. Recaps do not require the source to be staff-private: the operator must
+explicitly review which channels are appropriate to summarize.
+
+Kit inspects at most 100 recent messages from the last 24 hours, excludes
+bots/webhooks/system messages, orders eligible messages oldest-first, and
+labels authors consistently as `Camper 1`, `Camper 2`, etc. Known author and
+mentioned-user names/nicknames, Discord mentions, links, emails, phone-like
+numbers and attachment contents are removed/replaced before AI. Each message
+is capped near 300 characters and total transcript at 20,000 characters.
+This is best-effort redaction, **not a guarantee that arbitrary prose is
+anonymous**; unknown names and indirect identifying details may remain.
+Do not allowlist channels containing sensitive personal, health or family data.
+
+**Anonymized text is sent to the configured AI provider(s)** using the normal
+provider fallback order. Review provider retention and your community's notice
+and consent requirements before enabling. The neutral summary flags possible
+safety/conduct concerns generically for staff follow-up, without quotes or
+individual attribution; it is a limited sample, not a moderation verdict.
+No eligible messages means no AI call. Recaps bypass Kit's session storage,
+do not persist transcripts or summaries in Kit, and never log message content.
+Discord/provider retention still applies. All results and refusals are ephemeral
+to the requester, with mentions suppressed. Mentions/DMs/`!kit`/`/kit ask`
+cannot fetch recaps; use the staff slash command.
 
 #### Staff tickets
 

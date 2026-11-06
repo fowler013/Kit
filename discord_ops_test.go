@@ -39,12 +39,14 @@ func TestKitStaffCommandSchema(t *testing.T) {
 			kit = command
 		}
 	}
-	if kit == nil || len(kit.Options) != 3 {
-		t.Fatal("expected ask, status and remind at /kit root")
+	if kit == nil || len(kit.Options) != 5 {
+		t.Fatal("expected ask, status, remind, recap and help at /kit root")
 	}
 	if kit.Options[0].Name != "ask" || len(kit.Options[0].Options) != 2 ||
 		kit.Options[1].Name != "status" || len(kit.Options[1].Options) != 0 ||
-		kit.Options[2].Name != "remind" || kit.Options[2].Type != discordgo.ApplicationCommandOptionSubCommandGroup {
+		kit.Options[2].Name != "remind" || kit.Options[2].Type != discordgo.ApplicationCommandOptionSubCommandGroup ||
+		kit.Options[3].Name != "recap" || kit.Options[3].Type != discordgo.ApplicationCommandOptionSubCommand ||
+		kit.Options[4].Name != "help" {
 		t.Fatal("invalid /kit option nesting")
 	}
 	var validate func(*discordgo.ApplicationCommandOption)

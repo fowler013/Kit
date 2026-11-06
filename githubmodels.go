@@ -62,17 +62,21 @@ type ghChatResponse struct {
 
 // GenerateResponse generates a response using the GitHub Models API
 func (g *GitHubModelsClient) GenerateResponse(message string) (string, error) {
+	return g.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (g *GitHubModelsClient) generate(parent context.Context, message, system string) (string, error) {
 	if g == nil || g.token == "" {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	payload := ghChatRequest{
 		Model: g.model,
 		Messages: []ghChatMessage{
-			{Role: "system", Content: kitSystemPrompt},
+			{Role: "system", Content: system},
 			{Role: "user", Content: message},
 		},
 		MaxTokens:   1000,
@@ -95,7 +99,7 @@ func (g *GitHubModelsClient) GenerateResponse(message string) (string, error) {
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
-		log.Printf("❌ GitHub Models API error: %v", err)
+		log.Println("❌ GitHub Models API request failed")
 		return "", err
 	}
 	defer resp.Body.Close()
