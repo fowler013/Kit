@@ -123,7 +123,7 @@ func TestDisabledCampDoesNotReachAI(t *testing.T) {
 		return "should not be called", nil
 	}})
 	bot := &DiscordBot{aiService: service}
-	response := bot.generateDiscordResponse("who registered for camp?", "123", "456", false, nil)
+	response := bot.generateDiscordResponse("who registered for camp?", "123", "456", false, nil, "")
 	if called || !strings.Contains(response, "not configured") {
 		t.Fatal("disabled camp query was not kept out of the AI provider")
 	}

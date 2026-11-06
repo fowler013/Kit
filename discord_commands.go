@@ -75,6 +75,8 @@ func discordCommands() []*discordgo.ApplicationCommand {
 				}},
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "status", Description: "Private operational health for approved staff"},
 			reminderCommand(),
+			recapCommand(),
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "help", Description: "List commands and beginner Discord help"},
 		}},
 		{Name: "camp", Description: "Private registration queries for authorized staff in approved channels",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -121,6 +123,7 @@ type discordSlashRequest struct {
 	flags                                       discordgo.MessageFlags
 	reminderAction, reminderID, reminderMessage string
 	reminderDelay                               time.Duration
+	recapChannel                                string
 }
 
 func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discordSlashRequest, error) {
@@ -147,6 +150,16 @@ func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discor
 	case "kit":
 		if len(data.Options) == 1 && data.Options[0] != nil {
 			switch data.Options[0].Name {
+			case "help":
+				if data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand || len(data.Options[0].Options) != 0 {
+					return request, fmt.Errorf("invalid help options")
+				}
+				request.name = "help"
+				return request, nil
+			case "recap":
+				request.name = "kit-recap"
+				err := parseRecapOptions(data.Options[0], &request)
+				return request, err
 			case "status":
 				if data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand || len(data.Options[0].Options) != 0 {
 					return request, fmt.Errorf("invalid status options")
@@ -234,11 +247,12 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 	lines := []string{
 		"**Kit Discord Commands**",
 		"`/status` (`/health`) - Connection and AI status",
-		"`/help` (`/commands`) - Commands available to you",
+		"`/help` (`/commands`, `/kit help`) - Commands available to you",
 		"`/version` - Version information",
 		"`/myid` - Your user ID (private)",
 		"`/links` - Camp website links",
 		"`/kit ask prompt:<text> visibility:<private|public>` - Ask Kit (private by default)",
+		"Kit is your game guide first; you can also ask beginner Discord questions about tagging, DMs, commands, or channels.",
 	}
 	if d.slashCampAccess(s, i) {
 		lines = append(lines, "`/camp query:<help|stats|roster|unpaid|capacity>` - Private staff registration queries")
@@ -247,6 +261,7 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 		lines = append(lines,
 			"`/ticket new type:<request|feedback|bug|idea>` - Staff request or feedback form (no personal information)",
 			"`/kit status` - Private operational health",
+			"`/kit recap channel:<channel>` - Private 24-hour recap of an allowlisted channel (anonymized text sent to AI)",
 			"`/kit remind create|list|cancel` - One-off reminders in approved staff channels (lost on restart)")
 	}
 	if d.attendance != nil && d.attendance.client != nil && i.GuildID == d.attendance.client.guild {
@@ -262,6 +277,8 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 func (d *DiscordBot) slashResponse(s *discordgo.Session, i *discordgo.Interaction, request discordSlashRequest) string {
 	user := interactionUser(i)
 	switch request.name {
+	case "kit-recap":
+		return d.handleRecap(s, i, request.recapChannel)
 	case "kit-status", "kit-remind":
 		if i.GuildID == "" || !d.slashStaff(i) {
 			return "This command is restricted to approved staff."
@@ -304,6 +321,7 @@ func (d *DiscordBot) slashResponse(s *discordgo.Session, i *discordgo.Interactio
 			}
 			return d.aiService.Respond(ctx, ChatRequest{
 				Platform: "discord", UserID: user.ID, ChannelID: scope, Message: request.prompt,
+				ServerContext: d.discordServerContext(ctx, s, i.GuildID, request.prompt),
 			})
 		}
 		return d.generateDiscordFallback(request.prompt)

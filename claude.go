@@ -31,11 +31,15 @@ func NewClaudeClient(apiKey, model string) *ClaudeClient {
 
 // GenerateResponse generates a response using Claude AI
 func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
+	return c.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (c *ClaudeClient) generate(parent context.Context, message, system string) (string, error) {
 	if c == nil {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	// Create the message request
@@ -45,7 +49,7 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 		System: []anthropic.TextBlockParam{
 			{
 				Type: "text",
-				Text: kitSystemPrompt,
+				Text: system,
 			},
 		},
 		Messages: []anthropic.MessageParam{
@@ -59,7 +63,7 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 	})
 
 	if err != nil {
-		log.Printf("❌ Claude API error: %v", err)
+		log.Println("❌ Claude API request failed")
 		return "", err
 	}
 

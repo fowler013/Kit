@@ -69,17 +69,21 @@ type oaChatResponse struct {
 
 // GenerateResponse generates a response using the configured endpoint
 func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
+	return o.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (o *OpenAICompatClient) generate(parent context.Context, message, system string) (string, error) {
 	if o == nil {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 
 	payload := oaChatRequest{
 		Model: o.model,
 		Messages: []oaChatMessage{
-			{Role: "system", Content: kitSystemPrompt},
+			{Role: "system", Content: system},
 			{Role: "user", Content: message},
 		},
 		MaxTokens:   1000,
@@ -104,7 +108,7 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 
 	resp, err := o.httpClient.Do(req) // #nosec G704 -- request URL built from validated operator config
 	if err != nil {
-		log.Printf("❌ OpenAI-compatible API error: %v", err)
+		log.Println("❌ OpenAI-compatible API request failed")
 		return "", err
 	}
 	defer resp.Body.Close()

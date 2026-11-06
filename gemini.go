@@ -52,17 +52,23 @@ func NewGeminiClient(apiKey, modelName string) *GeminiClient {
 
 // GenerateResponse generates a response using Gemini AI
 func (g *GeminiClient) GenerateResponse(message string) (string, error) {
+	return g.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (g *GeminiClient) generate(parent context.Context, message, system string) (string, error) {
 	if g == nil || g.client == nil || g.model == nil {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
-	// Generate content
-	resp, err := g.model.GenerateContent(ctx, genai.Text(message))
+	// Copy per request so concurrent help and recap prompts never mutate the shared model.
+	model := *g.model
+	model.SystemInstruction = &genai.Content{Parts: []genai.Part{genai.Text(system)}}
+	resp, err := model.GenerateContent(ctx, genai.Text(message))
 	if err != nil {
-		log.Printf("❌ Gemini API error: %v", err)
+		log.Println("❌ Gemini API request failed")
 		return "", err
 	}
 

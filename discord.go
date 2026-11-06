@@ -33,6 +33,9 @@ type DiscordBot struct {
 	reminders      *reminderStore
 	ticketsChannel string
 	tickets        ticketStore
+	serverGuide    string
+	publicChannels publicChannelCache
+	recapChannels  map[string]bool
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -50,6 +53,17 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
 		discordgo.IntentsMessageContent
+	guide, err := loadServerGuide(os.Getenv("KIT_SERVER_GUIDE"))
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Discord server guide configured: %t", guide != "")
+	recapChannels := parseIDSet(os.Getenv("KIT_RECAP_CHANNEL_IDS"))
+	for id := range recapChannels {
+		if !attendanceID.MatchString(id) {
+			return nil, fmt.Errorf("KIT_RECAP_CHANNEL_IDS must contain comma-separated numeric channel IDs")
+		}
+	}
 
 	bot := &DiscordBot{
 		session:        session,
@@ -64,6 +78,8 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		staffRole:      strings.TrimSpace(os.Getenv("CAMP_ALLOWED_ROLE")),
 		reminders:      newReminderStore(),
 		ticketsChannel: strings.TrimSpace(os.Getenv("KIT_TICKETS_CHANNEL_ID")),
+		serverGuide:    guide,
+		recapChannels:  recapChannels,
 	}
 	attendance, err := attendanceFromEnv()
 	if err != nil {
@@ -160,7 +176,7 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	// Process the message
 	hasCampRole := d.memberHasCampRole(s, m)
 	campChannelOK := func() bool { return d.campChannelAllowed(s, m) }
-	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole, campChannelOK)
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, hasCampRole, campChannelOK, m.GuildID)
 	if strings.TrimSpace(response) == "" {
 		return
 	}
@@ -291,7 +307,7 @@ func (d *DiscordBot) campChannelAllowed(s *discordgo.Session, m *discordgo.Messa
 // generateDiscordResponse generates a response for Discord messages.
 // campChannelOK is only called for camp queries from authorized users; a nil
 // value means the channel is not a staff channel.
-func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool, campChannelOK func() bool) string {
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, hasCampRole bool, campChannelOK func() bool, guild string) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 	if fields := strings.Fields(cleanMessage); len(fields) > 0 && strings.EqualFold(fields[0], "!kit") {
@@ -326,11 +342,14 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	}
 
 	if d.aiService != nil {
-		return d.aiService.Respond(context.Background(), ChatRequest{
-			Platform:  "discord",
-			UserID:    userID,
-			ChannelID: channelID,
-			Message:   cleanMessage,
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		return d.aiService.Respond(ctx, ChatRequest{
+			Platform:      "discord",
+			UserID:        userID,
+			ChannelID:     channelID,
+			Message:       cleanMessage,
+			ServerContext: d.discordServerContext(ctx, d.session, guild, cleanMessage),
 		})
 	}
 
@@ -392,6 +411,8 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in servers to get responses\n" +
 			"• Use the listed !commands in server channels without a mention\n" +
+			"• Use `/kit ask` for game tips or beginner Discord help (tagging, DMs, commands, and channels)\n" +
+			"• Approved staff: `/kit recap channel:<channel>` privately summarizes an allowlisted channel\n" +
 			"• Ask questions, request help, or just chat!\n\n" +
 			"I'm powered by AI and ready to assist! 🧠✨"
 
