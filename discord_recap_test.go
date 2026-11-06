@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -70,9 +71,12 @@ func TestRecapRESTHistoryParticipantNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	restReads := map[string]int{}
+	var readsMu sync.Mutex
 	s.Client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		readsMu.Lock()
 		restReads[id]++
+		readsMu.Unlock()
 		if !strings.Contains(r.URL.Path, "/guilds/"+slashTestGuild+"/members/") {
 			t.Fatalf("unexpected member path: %s", r.URL.Path)
 		}
@@ -84,16 +88,13 @@ func TestRecapRESTHistoryParticipantNames(t *testing.T) {
 		if id == "mentioned" {
 			payload = `{"nick":"MentionNickname","user":{"id":"mentioned","username":"MentionUsername","global_name":"MentionGlobal"}}`
 		}
-		if id == "failed" {
-			status, payload = 404, `{"message":"Unknown Member"}`
-		}
 		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
 			Body: io.NopCloser(strings.NewReader(payload))}, nil
 	})
 	messages := []*discordgo.Message{
 		{Author: &discordgo.User{ID: slashTestParent, Username: "HistoryUsername"},
-			Content:  "StateNickname RestNickname MentionNickname FailedUsername StateGlobal RestGlobal MentionGlobal enjoy Minecraft",
-			Mentions: []*discordgo.User{{ID: "mentioned"}, {ID: "failed", Username: "FailedUsername"}}},
+			Content:  "StateNickname RestNickname MentionNickname StateGlobal RestGlobal MentionGlobal enjoy Minecraft",
+			Mentions: []*discordgo.User{{ID: "mentioned"}}},
 		{Author: &discordgo.User{ID: slashTestStaff}, Content: "StateUsername RestUsername MentionUsername enjoy Pokemon"},
 		{Author: &discordgo.User{ID: slashTestParent}, Content: "StateNickname plays again",
 			Mentions: []*discordgo.User{{ID: "mentioned"}}},
@@ -103,13 +104,13 @@ func TestRecapRESTHistoryParticipantNames(t *testing.T) {
 			t.Fatal("history regression must not supply gateway member metadata")
 		}
 	}
-	members := resolveRecapMembers(context.Background(), messages, guildRecapMemberResolver(s, slashTestGuild))
-	if len(members) != 3 || restReads[slashTestParent] != 0 || restReads[slashTestStaff] != 1 ||
-		restReads["mentioned"] != 1 || restReads["failed"] != 1 {
+	members, err := resolveRecapMembers(context.Background(), messages, guildRecapMemberResolver(s, slashTestGuild))
+	if err != nil || len(members) != 3 || restReads[slashTestParent] != 0 || restReads[slashTestStaff] != 1 ||
+		restReads["mentioned"] != 1 {
 		t.Fatalf("wrong state/REST resolution: members=%d reads=%v", len(members), restReads)
 	}
 	transcript := anonymizeRecap(messages, members...)
-	for _, name := range []string{"StateNickname", "RestNickname", "MentionNickname", "FailedUsername",
+	for _, name := range []string{"StateNickname", "RestNickname", "MentionNickname",
 		"StateUsername", "RestUsername", "MentionUsername", "StateGlobal", "RestGlobal", "MentionGlobal"} {
 		if strings.Contains(transcript, name) {
 			t.Errorf("participant name leaked: %s", name)
@@ -131,23 +132,36 @@ func TestRecapParticipantLookupBounds(t *testing.T) {
 	calls := 0
 	resolve := func(ctx context.Context, id string) (*discordgo.Member, error) {
 		calls++
-		if calls == 1 && id != "author" {
-			t.Fatal("authors not prioritized")
-		}
-		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 10*time.Second {
-			t.Fatal("participant lookup budget missing")
-		}
 		return nil, fmt.Errorf("unavailable")
 	}
-	resolveRecapMembers(context.Background(), messages, resolve)
-	if calls != maxRecapParticipants {
-		t.Fatalf("lookup count=%d", calls)
+	if _, err := resolveRecapMembers(context.Background(), messages, resolve); err == nil || calls != 0 {
+		t.Fatal("participant overflow must refuse before lookup")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	resolveRecapMembers(ctx, messages, resolve)
-	if calls != maxRecapParticipants {
+	if _, err := resolveRecapMembers(ctx, messages[:0], resolve); err == nil || calls != 0 {
 		t.Fatal("canceled context attempted lookup")
+	}
+}
+
+func TestRecapParticipantResolutionDeadlineAndEmptyNickname(t *testing.T) {
+	messages := []*discordgo.Message{{Author: &discordgo.User{ID: "author"}}}
+	members, err := resolveRecapMembers(context.Background(), messages, func(ctx context.Context, id string) (*discordgo.Member, error) {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 60*time.Second {
+			t.Error("metadata budget missing")
+		}
+		return &discordgo.Member{User: &discordgo.User{ID: id}}, nil
+	})
+	if err != nil || len(members) != 1 || members[0].Nick != "" {
+		t.Fatal("successfully resolved empty nickname must be valid")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := resolveRecapMembers(ctx, messages, func(ctx context.Context, id string) (*discordgo.Member, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}); err == nil {
+		t.Fatal("metadata deadline must refuse")
 	}
 }
 
@@ -295,7 +309,7 @@ func TestRecapAuthorizationRefusals(t *testing.T) {
 }
 
 func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
-	for _, mode := range []string{"summary", "empty", "bot-only", "history-failure", "channel-failure", "wrong-source-guild", "forum", "AI-failure", "long", "ack-failure", "delivery-failure", "refused"} {
+	for _, mode := range []string{"summary", "empty", "bot-only", "history-failure", "channel-failure", "wrong-source-guild", "forum", "AI-failure", "long", "ack-failure", "delivery-failure", "refused", "member-500", "member-403", "member-unknown", "member-timeout", "participant-overflow"} {
 		t.Run(mode, func(t *testing.T) {
 			s, calls := slashTestSession(t, 200)
 			bot := opsTestBot()
@@ -339,6 +353,11 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 						}
 						message := recapMessage("one", time.Now().Add(-time.Hour), slashTestParent, "PrivateName PrivateNickname likes Minecraft")
 						message.Author.Username = "PrivateName"
+						if mode == "participant-overflow" {
+							for n := 0; n < maxRecapParticipants; n++ {
+								message.Mentions = append(message.Mentions, &discordgo.User{ID: fmt.Sprint(n)})
+							}
+						}
 						if mode == "bot-only" {
 							message.Author.Bot = true
 						}
@@ -355,6 +374,16 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 						}
 					} else if strings.Contains(r.URL.Path, "/members/") {
 						payload = `{"user":{"id":"` + slashTestParent + `","username":"PrivateName"},"nick":"PrivateNickname"}`
+						switch mode {
+						case "member-500":
+							status, payload = 500, `{"message":"Internal Server Error"}`
+						case "member-403":
+							status, payload = 403, `{"message":"Missing Access","code":50001}`
+						case "member-unknown":
+							status, payload = 404, `{"message":"Unknown Member","code":10007}`
+						case "member-timeout":
+							return nil, context.DeadlineExceeded
+						}
 					} else {
 						guild, kind := slashTestGuild, 0
 						if mode == "wrong-source-guild" {
@@ -432,6 +461,11 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 				}
 				if mode == "long" && len(strings.Fields(reply.Content)) >= 250 {
 					t.Fatal("summary exceeded word cap")
+				}
+				if strings.HasPrefix(mode, "member-") || mode == "participant-overflow" {
+					if !strings.Contains(reply.Content, "Could not verify participant names") {
+						t.Fatal("missing explicit participant-verification refusal")
+					}
 				}
 			}
 		})

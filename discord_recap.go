@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -117,13 +118,13 @@ const maxRecapParticipants = 200
 
 type recapMemberResolver func(context.Context, string) (*discordgo.Member, error)
 
-func resolveRecapMembers(ctx context.Context, messages []*discordgo.Message, resolve recapMemberResolver) []*discordgo.Member {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func resolveRecapMembers(ctx context.Context, messages []*discordgo.Message, resolve recapMemberResolver) ([]*discordgo.Member, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	ids := []string{}
 	seen := map[string]bool{}
 	add := func(user *discordgo.User) {
-		if user != nil && user.ID != "" && !seen[user.ID] && len(ids) < maxRecapParticipants {
+		if user != nil && user.ID != "" && !seen[user.ID] && len(ids) <= maxRecapParticipants {
 			seen[user.ID] = true
 			ids = append(ids, user.ID)
 		}
@@ -141,24 +142,42 @@ func resolveRecapMembers(ctx context.Context, messages []*discordgo.Message, res
 			}
 		}
 	}
-	members := []*discordgo.Member{}
-	incomplete := false
-	for _, id := range ids {
-		if ctx.Err() != nil {
-			incomplete = true
-			break
-		}
-		member, err := resolve(ctx, id)
-		if err != nil || member == nil {
-			incomplete = true
-			continue
-		}
-		members = append(members, member)
+	if len(ids) > maxRecapParticipants {
+		return nil, fmt.Errorf("recap participant limit exceeded")
 	}
-	if incomplete || len(ids) == maxRecapParticipants {
-		log.Println("Discord recap participant metadata may be incomplete; redaction is best-effort")
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return members
+	members := make([]*discordgo.Member, len(ids))
+	jobs := make(chan int, len(ids))
+	for index := range ids {
+		jobs <- index
+	}
+	close(jobs)
+	var workers sync.WaitGroup
+	// Eight bounded workers allow 200 two-second lookups within the metadata budget.
+	for n := 0; n < 8; n++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				member, err := resolve(ctx, ids[index])
+				if err != nil || member == nil {
+					cancel()
+					return
+				}
+				members[index] = member
+			}
+		}()
+	}
+	workers.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("could not resolve all recap participants: %w", err)
+	}
+	return members, nil
 }
 
 func guildRecapMemberResolver(s *discordgo.Session, guild string) recapMemberResolver {
@@ -298,7 +317,11 @@ func (d *DiscordBot) handleRecap(s *discordgo.Session, i *discordgo.Interaction,
 		log.Println("Discord recap history fetch failed")
 		return "Could not read channel history. Check Kit's View Channel and Read Message History permissions."
 	}
-	members := resolveRecapMembers(ctx, messages, guildRecapMemberResolver(s, i.GuildID))
+	members, err := resolveRecapMembers(ctx, messages, guildRecapMemberResolver(s, i.GuildID))
+	if err != nil {
+		log.Println("Discord recap participant verification failed; no recap generated")
+		return "Could not verify participant names for anonymization, so no recap was generated. Please try again later."
+	}
 	transcript := anonymizeRecap(messages, members...)
 	if transcript == "" {
 		return "No eligible human messages were found in the last 24 hours (up to 100 recent messages checked)."
