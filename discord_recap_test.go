@@ -88,14 +88,17 @@ func TestRecapRESTHistoryParticipantNames(t *testing.T) {
 		if id == "mentioned" {
 			payload = `{"nick":"MentionNickname","user":{"id":"mentioned","username":"MentionUsername","global_name":"MentionGlobal"}}`
 		}
+		if id == slashTestParent {
+			payload = `{"nick":"FreshNickname","user":{"id":"` + slashTestParent + `","username":"FreshUsername","global_name":"FreshGlobal"}}`
+		}
 		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
 			Body: io.NopCloser(strings.NewReader(payload))}, nil
 	})
 	messages := []*discordgo.Message{
 		{Author: &discordgo.User{ID: slashTestParent, Username: "HistoryUsername"},
-			Content:  "StateNickname RestNickname MentionNickname StateGlobal RestGlobal MentionGlobal enjoy Minecraft",
+			Content:  "StateNickname FreshNickname RestNickname MentionNickname StateGlobal FreshGlobal RestGlobal MentionGlobal enjoy Minecraft",
 			Mentions: []*discordgo.User{{ID: "mentioned"}}},
-		{Author: &discordgo.User{ID: slashTestStaff}, Content: "StateUsername RestUsername MentionUsername enjoy Pokemon"},
+		{Author: &discordgo.User{ID: slashTestStaff}, Content: "StateUsername FreshUsername RestUsername MentionUsername enjoy Pokemon"},
 		{Author: &discordgo.User{ID: slashTestParent}, Content: "StateNickname plays again",
 			Mentions: []*discordgo.User{{ID: "mentioned"}}},
 	}
@@ -105,13 +108,14 @@ func TestRecapRESTHistoryParticipantNames(t *testing.T) {
 		}
 	}
 	members, err := resolveRecapMembers(context.Background(), messages, guildRecapMemberResolver(s, slashTestGuild))
-	if err != nil || len(members) != 3 || restReads[slashTestParent] != 0 || restReads[slashTestStaff] != 1 ||
+	if err != nil || len(members) != 3 || restReads[slashTestParent] != 1 || restReads[slashTestStaff] != 1 ||
 		restReads["mentioned"] != 1 {
 		t.Fatalf("wrong state/REST resolution: members=%d reads=%v", len(members), restReads)
 	}
+	members = withCachedRecapAliases(s, slashTestGuild, members)
 	transcript := anonymizeRecap(messages, members...)
-	for _, name := range []string{"StateNickname", "RestNickname", "MentionNickname",
-		"StateUsername", "RestUsername", "MentionUsername", "StateGlobal", "RestGlobal", "MentionGlobal"} {
+	for _, name := range []string{"StateNickname", "FreshNickname", "RestNickname", "MentionNickname",
+		"StateUsername", "FreshUsername", "RestUsername", "MentionUsername", "StateGlobal", "FreshGlobal", "RestGlobal", "MentionGlobal"} {
 		if strings.Contains(transcript, name) {
 			t.Errorf("participant name leaked: %s", name)
 		}
@@ -312,6 +316,12 @@ func TestRecapEphemeralDeliveryAndPrivacy(t *testing.T) {
 	for _, mode := range []string{"summary", "empty", "bot-only", "history-failure", "channel-failure", "wrong-source-guild", "forum", "AI-failure", "long", "ack-failure", "delivery-failure", "refused", "member-500", "member-403", "member-unknown", "member-timeout", "participant-overflow"} {
 		t.Run(mode, func(t *testing.T) {
 			s, calls := slashTestSession(t, 200)
+			if mode == "member-unknown" {
+				if err := s.State.MemberAdd(&discordgo.Member{GuildID: slashTestGuild, Nick: "StaleNickname",
+					User: &discordgo.User{ID: slashTestParent, Username: "PrivateName"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			bot := opsTestBot()
 			bot.recapChannels = map[string]bool{recapTestChannel: true}
 			store := NewInMemorySessionStore()

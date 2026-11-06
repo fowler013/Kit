@@ -97,9 +97,11 @@ URLs, emails and phone-like patterns are redacted; attachments become markers,
 not downloaded content. Inputs are capped near 300 characters per message and
 20,000 characters total. Empty history does not call AI.
 
-Before redaction, Kit resolves unique authors and mentioned users from guild
-member state, then falls back to individual REST member lookups for missing
-entries. Up to 200 participants are checked, with eight concurrent workers, a
+Before redaction, Kit freshly resolves every unique author and mentioned user
+with an individual REST guild-member lookup, even when cached member data exists.
+Cached nicknames and account names are additionally redacted as historical
+aliases, never treated as proof that a participant is still a member.
+Up to 200 participants are checked, with eight concurrent workers, a
 two-second timeout per REST lookup and a sixty-second total metadata budget
 within the ninety-second recap request timeout. Resolved nicknames, usernames
 and global names are redacted from both the transcript and reply. If any lookup
@@ -109,9 +111,11 @@ A successfully resolved member with no nickname is valid. Departed or otherwise
 unresolvable participants can therefore make a recap unavailable. Unknown names
 or indirect identifiers in ordinary prose remain a best-effort limitation.
 The bot does not enable the privileged `GUILD_MEMBERS` intent, so gateway member
-coverage can be incomplete; it does not rely on a full member cache or request
-a member-list download. The individual REST lookup supplies missing metadata
-when Discord permits it; no additional privileged intent is enabled by this feature.
+coverage and nickname/removal updates can be incomplete or stale. Fresh REST
+verification is required regardless of cache state; no full member-list download
+or additional privileged intent is enabled. Historical nicknames no longer in
+either the cache or the current member response, unknown names, and indirect
+identifiers in ordinary prose remain best-effort redaction limitations.
 
 **Anonymized text goes to the configured AI provider(s)**. Redaction is
 best-effort: unknown names and indirect identifying prose may survive. Operators

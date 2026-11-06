@@ -182,22 +182,40 @@ func resolveRecapMembers(ctx context.Context, messages []*discordgo.Message, res
 
 func guildRecapMemberResolver(s *discordgo.Session, guild string) recapMemberResolver {
 	return func(ctx context.Context, user string) (*discordgo.Member, error) {
-		if s.State != nil {
-			if member, err := s.State.Member(guild, user); err == nil && member != nil {
-				s.State.RLock()
-				copyMember := *member
-				if member.User != nil {
-					copyUser := *member.User
-					copyMember.User = &copyUser
-				}
-				s.State.RUnlock()
-				return &copyMember, nil
-			}
-		}
 		lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		return s.GuildMember(guild, user, discordgo.WithContext(lookupCtx))
+		member, err := s.GuildMember(guild, user, discordgo.WithContext(lookupCtx))
+		if err != nil {
+			return nil, err
+		}
+		if member == nil || member.User == nil || member.User.ID != user {
+			return nil, fmt.Errorf("invalid recap participant metadata")
+		}
+		return member, nil
 	}
+}
+
+func withCachedRecapAliases(s *discordgo.Session, guild string, members []*discordgo.Member) []*discordgo.Member {
+	if s.State == nil {
+		return members
+	}
+	aliases := []*discordgo.Member{}
+	for _, current := range members {
+		if current.User == nil {
+			continue
+		}
+		if member, err := s.State.Member(guild, current.User.ID); err == nil && member != nil {
+			s.State.RLock()
+			copyMember := *member
+			if member.User != nil {
+				copyUser := *member.User
+				copyMember.User = &copyUser
+			}
+			s.State.RUnlock()
+			aliases = append(aliases, &copyMember)
+		}
+	}
+	return append(members, aliases...)
 }
 
 func recapNames(messages []*discordgo.Message, members ...*discordgo.Member) *regexp.Regexp {
@@ -322,6 +340,7 @@ func (d *DiscordBot) handleRecap(s *discordgo.Session, i *discordgo.Interaction,
 		log.Println("Discord recap participant verification failed; no recap generated")
 		return "Could not verify participant names for anonymization, so no recap was generated. Please try again later."
 	}
+	members = withCachedRecapAliases(s, i.GuildID, members)
 	transcript := anonymizeRecap(messages, members...)
 	if transcript == "" {
 		return "No eligible human messages were found in the last 24 hours (up to 100 recent messages checked)."
