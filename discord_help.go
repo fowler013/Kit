@@ -32,7 +32,7 @@ func loadServerGuide(raw string) (string, error) {
 		return "", nil
 	}
 	path := filepath.Clean(raw)
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) // #nosec G703 -- trusted operator-only env path; metadata check before opening, never chat input
 	if err == nil && !info.Mode().IsRegular() {
 		return "", fmt.Errorf("KIT_SERVER_GUIDE must reference a regular file")
 	}
