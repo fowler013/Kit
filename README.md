@@ -158,7 +158,9 @@ Kit remains a camper-friendly game guide first. Ask `@Kit how do I tag someone?`
 Optional `KIT_SERVER_GUIDE` accepts inline text or a UTF-8 file path, loaded once
 at startup with a 4,000-character limit; only its presence is logged. Copy and
 customize [the public guide template](server_guide.example.md). Missing file paths,
-invalid UTF-8, and oversized guides fail startup rather than silently losing context.
+non-regular files, invalid UTF-8, and oversized guides fail startup rather than
+silently losing context. File paths are cleaned and trusted operator-only
+configuration; they are never accepted from Discord messages.
 
 For navigation questions **in the configured guild only**, Kit sends the guide
 and up to 40 public text/announcement/forum channel names, truncated topics and

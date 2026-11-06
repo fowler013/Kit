@@ -27,6 +27,8 @@ func TestLoadServerGuide(t *testing.T) {
 		{" Inline guide ", "Inline guide", false},
 		{"Use /help to find commands", "Use /help to find commands", false},
 		{path, "Public guide: use /help.", false},
+		{filepath.Dir(path) + string(os.PathSeparator) + "unused" + string(os.PathSeparator) + ".." + string(os.PathSeparator) + "guide.md", "Public guide: use /help.", false},
+		{filepath.Dir(path), "", true},
 		{filepath.Join(t.TempDir(), "missing.md"), "", true},
 		{strings.Repeat("x", maxServerGuide), strings.Repeat("x", maxServerGuide), false},
 		{strings.Repeat("x", maxServerGuide+1), "", true},

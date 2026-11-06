@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -30,9 +31,23 @@ func loadServerGuide(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	file, err := os.Open(raw) // #nosec G304 -- trusted operator configuration, never chat input
+	path := filepath.Clean(raw)
+	info, err := os.Stat(path)
+	if err == nil && !info.Mode().IsRegular() {
+		return "", fmt.Errorf("KIT_SERVER_GUIDE must reference a regular file")
+	}
+	var file *os.File
+	if err == nil {
+		// Absolute and relative paths are intentional operator configuration.
+		// Go 1.23 compatibility prevents using os.OpenInRoot here.
+		file, err = os.Open(path) // #nosec G304 G703 -- trusted operator-only env configuration, never chat input; cleaned and regular-file checked
+	}
 	if err == nil {
 		defer file.Close()
+		openedInfo, statErr := file.Stat()
+		if statErr != nil || !openedInfo.Mode().IsRegular() {
+			return "", fmt.Errorf("KIT_SERVER_GUIDE must reference a regular file")
+		}
 		data, readErr := io.ReadAll(io.LimitReader(file, maxServerGuide*4+1))
 		if readErr != nil {
 			return "", fmt.Errorf("cannot read KIT_SERVER_GUIDE file")

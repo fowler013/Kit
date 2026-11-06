@@ -57,7 +57,11 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Discord server guide configured: %t", guide != "")
+	if guide != "" {
+		log.Println("Discord server guide configured: true")
+	} else {
+		log.Println("Discord server guide configured: false")
+	}
 	recapChannels := parseIDSet(os.Getenv("KIT_RECAP_CHANNEL_IDS"))
 	for id := range recapChannels {
 		if !attendanceID.MatchString(id) {
