@@ -118,8 +118,8 @@ func TestSlashCommandDefinitions(t *testing.T) {
 			}
 		})
 	}
-	if len(names) != 10 {
-		t.Fatalf("got %d commands, want 10", len(names))
+	if len(names) != 11 {
+		t.Fatalf("got %d commands, want 11", len(names))
 	}
 	kit := discordCommands()[7].Options[0].Options
 	if kit[0].Name != "prompt" || !kit[0].Required || kit[0].MaxLength != 4000 ||

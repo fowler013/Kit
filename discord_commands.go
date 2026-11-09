@@ -73,12 +73,17 @@ func discordCommands() []*discordgo.ApplicationCommand {
 							{Name: "private", Value: "private"}, {Name: "public", Value: "public"},
 						}},
 				}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "status", Description: "Private operational health for approved staff"},
+			reminderCommand(),
+			recapCommand(),
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "help", Description: "List commands and beginner Discord help"},
 		}},
 		{Name: "camp", Description: "Private registration queries for authorized staff in approved channels",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionString, Name: "query", Description: "help, stats, roster, unpaid, or capacity"},
 			}},
 		attendanceCommand(),
+		ticketCommand(),
 	}
 	for _, command := range commands {
 		command.Type = discordgo.ChatApplicationCommand
@@ -91,6 +96,7 @@ func discordCommands() []*discordgo.ApplicationCommand {
 func (d *DiscordBot) registerDiscordCommands(s *discordgo.Session) {
 	config := d.commands
 	if !config.register {
+		d.setRegistration("disabled")
 		return
 	}
 	application := config.application
@@ -99,19 +105,25 @@ func (d *DiscordBot) registerDiscordCommands(s *discordgo.Session) {
 	}
 	if !attendanceID.MatchString(application) || !attendanceID.MatchString(config.guild) {
 		log.Println("Discord command registration skipped: valid application and guild IDs are required")
+		d.setRegistration("skipped (invalid application or guild)")
 		return
 	}
 	// Bulk overwrite is guild-scoped and replaces the same definitions on every startup.
 	if _, err := s.ApplicationCommandBulkOverwrite(application, config.guild, discordCommands()); err != nil {
 		log.Println("Discord guild command registration failed; bot remains online (check application scope and permissions)")
+		d.setRegistration("failed")
 		return
 	}
 	log.Println("Discord guild commands registered successfully")
+	d.setRegistration("registered")
 }
 
 type discordSlashRequest struct {
-	name, prompt string
-	flags        discordgo.MessageFlags
+	name, prompt                                string
+	flags                                       discordgo.MessageFlags
+	reminderAction, reminderID, reminderMessage string
+	reminderDelay                               time.Duration
+	recapChannel                                string
 }
 
 func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discordSlashRequest, error) {
@@ -136,6 +148,30 @@ func parseDiscordSlash(data discordgo.ApplicationCommandInteractionData) (discor
 			request.prompt = strings.TrimSpace(value)
 		}
 	case "kit":
+		if len(data.Options) == 1 && data.Options[0] != nil {
+			switch data.Options[0].Name {
+			case "help":
+				if data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand || len(data.Options[0].Options) != 0 {
+					return request, fmt.Errorf("invalid help options")
+				}
+				request.name = "help"
+				return request, nil
+			case "recap":
+				request.name = "kit-recap"
+				err := parseRecapOptions(data.Options[0], &request)
+				return request, err
+			case "status":
+				if data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand || len(data.Options[0].Options) != 0 {
+					return request, fmt.Errorf("invalid status options")
+				}
+				request.name = "kit-status"
+				return request, nil
+			case "remind":
+				request.name = "kit-remind"
+				err := parseReminderOptions(data.Options[0], &request)
+				return request, err
+			}
+		}
 		if len(data.Options) != 1 || data.Options[0] == nil ||
 			data.Options[0].Name != "ask" || data.Options[0].Type != discordgo.ApplicationCommandOptionSubCommand {
 			return request, fmt.Errorf("expected ask subcommand")
@@ -211,14 +247,22 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 	lines := []string{
 		"**Kit Discord Commands**",
 		"`/status` (`/health`) - Connection and AI status",
-		"`/help` (`/commands`) - Commands available to you",
+		"`/help` (`/commands`, `/kit help`) - Commands available to you",
 		"`/version` - Version information",
 		"`/myid` - Your user ID (private)",
 		"`/links` - Camp website links",
 		"`/kit ask prompt:<text> visibility:<private|public>` - Ask Kit (private by default)",
+		"Kit is your game guide first; you can also ask beginner Discord questions about tagging, DMs, commands, or channels.",
 	}
 	if d.slashCampAccess(s, i) {
 		lines = append(lines, "`/camp query:<help|stats|roster|unpaid|capacity>` - Private staff registration queries")
+	}
+	if d.slashStaff(i) {
+		lines = append(lines,
+			"`/ticket new type:<request|feedback|bug|idea>` - Staff request or feedback form (no personal information)",
+			"`/kit status` - Private operational health",
+			"`/kit recap channel:<channel>` - Private 24-hour recap of an allowlisted channel (anonymized text sent to AI)",
+			"`/kit remind create|list|cancel` - One-off reminders in approved staff channels (lost on restart)")
 	}
 	if d.attendance != nil && d.attendance.client != nil && i.GuildID == d.attendance.client.guild {
 		lines = append(lines, "`/attendance parent session:<slug> date:<YYYY-MM-DD>` - Private linked-camper workflow")
@@ -233,6 +277,16 @@ func (d *DiscordBot) slashHelp(s *discordgo.Session, i *discordgo.Interaction) s
 func (d *DiscordBot) slashResponse(s *discordgo.Session, i *discordgo.Interaction, request discordSlashRequest) string {
 	user := interactionUser(i)
 	switch request.name {
+	case "kit-recap":
+		return d.handleRecap(s, i, request.recapChannel)
+	case "kit-status", "kit-remind":
+		if i.GuildID == "" || !d.slashStaff(i) {
+			return "This command is restricted to approved staff."
+		}
+		if request.name == "kit-status" {
+			return d.staffStatus(context.Background())
+		}
+		return d.handleReminder(s, i, request)
 	case "help", "commands":
 		return d.slashHelp(s, i)
 	case "status", "health", "version":
@@ -267,6 +321,7 @@ func (d *DiscordBot) slashResponse(s *discordgo.Session, i *discordgo.Interactio
 			}
 			return d.aiService.Respond(ctx, ChatRequest{
 				Platform: "discord", UserID: user.ID, ChannelID: scope, Message: request.prompt,
+				ServerContext: d.discordServerContext(ctx, s, i.GuildID, request.prompt),
 			})
 		}
 		return d.generateDiscordFallback(request.prompt)
@@ -279,6 +334,10 @@ func (d *DiscordBot) onDiscordInteraction(s *discordgo.Session, event *discordgo
 		return
 	}
 	i := event.Interaction
+	if isTicketInteraction(i) {
+		d.onTicketInteraction(s, i)
+		return
+	}
 	if i.Type != discordgo.InteractionApplicationCommand {
 		d.onAttendanceInteraction(s, event)
 		return

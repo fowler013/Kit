@@ -57,7 +57,8 @@ type oaChatRequest struct {
 
 type oaChatResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
@@ -68,19 +69,21 @@ type oaChatResponse struct {
 
 // GenerateResponse generates a response using the configured endpoint
 func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
+	return o.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (o *OpenAICompatClient) generate(parent context.Context, message, system string) (string, error) {
 	if o == nil {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
-
-	systemPrompt := `You are Kit, a helpful and friendly AI assistant integrated into Slack and Discord. Keep responses under 300 words and be professional but approachable.`
 
 	payload := oaChatRequest{
 		Model: o.model,
 		Messages: []oaChatMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: system},
 			{Role: "user", Content: message},
 		},
 		MaxTokens:   1000,
@@ -105,7 +108,7 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 
 	resp, err := o.httpClient.Do(req) // #nosec G704 -- request URL built from validated operator config
 	if err != nil {
-		log.Printf("❌ OpenAI-compatible API error: %v", err)
+		log.Println("❌ OpenAI-compatible API request failed")
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -129,7 +132,7 @@ func (o *OpenAICompatClient) GenerateResponse(message string) (string, error) {
 	}
 
 	if len(parsed.Choices) > 0 && parsed.Choices[0].Message.Content != "" {
-		return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+		return finalizeAIResponse(strings.TrimSpace(parsed.Choices[0].Message.Content), parsed.Choices[0].FinishReason == "length"), nil
 	}
 
 	return "", nil

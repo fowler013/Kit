@@ -31,15 +31,16 @@ func NewClaudeClient(apiKey, model string) *ClaudeClient {
 
 // GenerateResponse generates a response using Claude AI
 func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
+	return c.generate(context.Background(), message, kitSystemPrompt)
+}
+
+func (c *ClaudeClient) generate(parent context.Context, message, system string) (string, error) {
 	if c == nil {
 		return "", nil // Return empty to use fallback
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
-
-	// System prompt for Kit's personality
-	systemPrompt := `You are Kit, a helpful and friendly AI assistant integrated into Slack. Keep responses under 300 words and be professional but approachable.`
 
 	// Create the message request
 	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -48,7 +49,7 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 		System: []anthropic.TextBlockParam{
 			{
 				Type: "text",
-				Text: systemPrompt,
+				Text: system,
 			},
 		},
 		Messages: []anthropic.MessageParam{
@@ -62,14 +63,14 @@ func (c *ClaudeClient) GenerateResponse(message string) (string, error) {
 	})
 
 	if err != nil {
-		log.Printf("❌ Claude API error: %v", err)
+		log.Println("❌ Claude API request failed")
 		return "", err
 	}
 
 	// Extract text from response
 	if len(resp.Content) > 0 {
 		if resp.Content[0].Type == "text" {
-			return resp.Content[0].Text, nil
+			return finalizeAIResponse(resp.Content[0].Text, resp.StopReason == anthropic.StopReasonMaxTokens), nil
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
@@ -14,16 +15,27 @@ import (
 
 // DiscordBot holds the Discord bot configuration
 type DiscordBot struct {
-	session      *discordgo.Session
-	geminiClient *GeminiClient
-	claudeClient *ClaudeClient
-	aiService    *AIService
-	startTime    string
-	botID        string
-	mu           sync.RWMutex
-	attendance   *discordAttendance
-	commands     discordCommandConfig
-	registerOnce sync.Once
+	session        *discordgo.Session
+	geminiClient   *GeminiClient
+	claudeClient   *ClaudeClient
+	aiService      *AIService
+	startTime      string
+	botID          string
+	mu             sync.RWMutex
+	attendance     *discordAttendance
+	commands       discordCommandConfig
+	registerOnce   sync.Once
+	startedAt      time.Time
+	registration   string
+	opsChannel     string
+	staffChannels  map[string]bool
+	staffRole      string
+	reminders      *reminderStore
+	ticketsChannel string
+	tickets        ticketStore
+	serverGuide    string
+	publicChannels publicChannelCache
+	recapChannels  map[string]bool
 }
 
 // NewDiscordBot creates a new Discord bot instance
@@ -41,14 +53,37 @@ func NewDiscordBot(token string, geminiClient *GeminiClient, claudeClient *Claud
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
 		discordgo.IntentsMessageContent
+	guide, err := loadServerGuide(os.Getenv("KIT_SERVER_GUIDE"))
+	if err != nil {
+		return nil, err
+	}
+	if guide != "" {
+		log.Println("Discord server guide configured: true")
+	} else {
+		log.Println("Discord server guide configured: false")
+	}
+	recapChannels := parseIDSet(os.Getenv("KIT_RECAP_CHANNEL_IDS"))
+	for id := range recapChannels {
+		if !attendanceID.MatchString(id) {
+			return nil, fmt.Errorf("KIT_RECAP_CHANNEL_IDS must contain comma-separated numeric channel IDs")
+		}
+	}
 
 	bot := &DiscordBot{
-		session:      session,
-		geminiClient: geminiClient,
-		claudeClient: claudeClient,
-		aiService:    aiService,
-		startTime:    startTime,
-		commands:     discordCommandsFromEnv(),
+		session:        session,
+		geminiClient:   geminiClient,
+		claudeClient:   claudeClient,
+		aiService:      aiService,
+		startTime:      startTime,
+		commands:       discordCommandsFromEnv(),
+		startedAt:      time.Now(),
+		opsChannel:     strings.TrimSpace(os.Getenv("KIT_OPS_CHANNEL_ID")),
+		staffChannels:  parseIDSet(os.Getenv("CAMP_ALLOWED_CHANNEL_IDS")),
+		staffRole:      strings.TrimSpace(os.Getenv("CAMP_ALLOWED_ROLE")),
+		reminders:      newReminderStore(),
+		ticketsChannel: strings.TrimSpace(os.Getenv("KIT_TICKETS_CHANNEL_ID")),
+		serverGuide:    guide,
+		recapChannels:  recapChannels,
 	}
 	attendance, err := attendanceFromEnv()
 	if err != nil {
@@ -97,6 +132,9 @@ func (d *DiscordBot) userID() string {
 // Stop stops the Discord bot
 func (d *DiscordBot) Stop() error {
 	log.Println("🔵 Stopping Discord bot...")
+	if d.reminders != nil {
+		d.reminders.stop()
+	}
 	return d.session.Close()
 }
 
@@ -109,7 +147,10 @@ func (d *DiscordBot) onReady(s *discordgo.Session, event *discordgo.Ready) {
 	d.mu.Lock()
 	d.botID = event.User.ID
 	d.mu.Unlock()
-	d.registerOnce.Do(func() { d.registerDiscordCommands(s) })
+	d.registerOnce.Do(func() {
+		d.registerDiscordCommands(s)
+		d.postStartupHealth(s)
+	})
 
 	// Set bot status
 	err := s.UpdateGameStatus(0, "🤖 Kit AI Assistant")
@@ -139,7 +180,7 @@ func (d *DiscordBot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageC
 	// Process the message
 	campRoleOK := func() bool { return d.memberHasCampRole(s, m) }
 	campChannelOK := func() bool { return d.campChannelAllowed(s, m) }
-	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, campRoleOK, campChannelOK)
+	response := d.generateDiscordResponse(m.Content, m.Author.ID, m.ChannelID, campRoleOK, campChannelOK, m.GuildID)
 	if strings.TrimSpace(response) == "" {
 		return
 	}
@@ -271,7 +312,7 @@ func (d *DiscordBot) campChannelAllowed(s *discordgo.Session, m *discordgo.Messa
 // campRoleOK is only called for camp queries from users not already allowlisted.
 // campChannelOK is only called for camp queries from authorized users; a nil
 // value means the channel is not a staff channel.
-func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, campRoleOK, campChannelOK func() bool) string {
+func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, campRoleOK, campChannelOK func() bool, guild string) string {
 	// Clean the message (remove mentions)
 	cleanMessage := d.cleanDiscordMessage(content)
 	if fields := strings.Fields(cleanMessage); len(fields) > 0 && strings.EqualFold(fields[0], "!kit") {
@@ -310,11 +351,14 @@ func (d *DiscordBot) generateDiscordResponse(content, userID, channelID string, 
 	}
 
 	if d.aiService != nil {
-		return d.aiService.Respond(context.Background(), ChatRequest{
-			Platform:  "discord",
-			UserID:    userID,
-			ChannelID: channelID,
-			Message:   cleanMessage,
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		return d.aiService.Respond(ctx, ChatRequest{
+			Platform:      "discord",
+			UserID:        userID,
+			ChannelID:     channelID,
+			Message:       cleanMessage,
+			ServerContext: d.discordServerContext(ctx, d.session, guild, cleanMessage),
 		})
 	}
 
@@ -376,6 +420,8 @@ func (d *DiscordBot) handleDiscordCommands(message string) string {
 			"• Send direct messages for private conversations\n" +
 			"• Mention @Kit in servers to get responses\n" +
 			"• Use the listed !commands in server channels without a mention\n" +
+			"• Use `/kit ask` for game tips or beginner Discord help (tagging, DMs, commands, and channels)\n" +
+			"• Approved staff: `/kit recap channel:<channel>` privately summarizes an allowlisted channel\n" +
 			"• Ask questions, request help, or just chat!\n\n" +
 			"I'm powered by AI and ready to assist! 🧠✨"
 
