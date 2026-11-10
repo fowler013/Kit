@@ -32,6 +32,12 @@ Kit cannot see who may read a listed channel, so only list channels that are
 actually private. DMs require a user ID allowlist because a DM has no server
 role context. Prefer explicit user IDs to role names.
 
+For legacy text commands and mentions, Kit fetches server roles only when a camp
+query needs role-based authorization. Built-in commands, ordinary AI questions,
+and camp queries from allowlisted user IDs skip that lookup. Role-based checks
+still fetch current roles and deny access if the lookup fails; private-channel
+restrictions remain unchanged.
+
 **Private attendance is separate and disabled by default.** Do not reuse the
 legacy registration credentials/roles or public `!camp` response paths for it.
 The `/attendance` interaction handler never registers commands or changes

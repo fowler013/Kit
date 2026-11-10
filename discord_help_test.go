@@ -225,7 +225,7 @@ func TestDiscordContextReachesPromptOnlyWhenRelevant(t *testing.T) {
 		return "answer", nil
 	}})
 	for _, message := range []string{"how do I tag someone?", "build a Minecraft house"} {
-		bot.generateDiscordResponse("!kit "+message, slashTestParent, "public", false, nil, slashTestGuild)
+		bot.generateDiscordResponse("!kit "+message, slashTestParent, "public", nil, nil, slashTestGuild)
 		bot.slashResponse(s, slashTestInteraction("kit", slashTestParent, slashTestGuild, "public").Interaction,
 			discordSlashRequest{name: "kit", prompt: message, flags: discordgo.MessageFlagsEphemeral})
 	}
